@@ -4,14 +4,20 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
+	gomock "go.uber.org/mock/gomock"
 	keactrl "isc.org/stork/appctrl/kea"
 	dhcpmodel "isc.org/stork/datamodel/dhcp"
 	agentcommtest "isc.org/stork/server/agentcomm/test"
 	apps "isc.org/stork/server/apps"
+	"isc.org/stork/server/apps/kea"
 	appstest "isc.org/stork/server/apps/test"
 	"isc.org/stork/server/config"
+	"isc.org/stork/server/configmigrator"
 	dbmodel "isc.org/stork/server/database/model"
 	dbtest "isc.org/stork/server/database/test"
 	"isc.org/stork/server/gen/models"
@@ -19,6 +25,8 @@ import (
 	storktestdbmodel "isc.org/stork/server/test/dbmodel"
 	storkutil "isc.org/stork/util"
 )
+
+//go:generate mockgen -package=restservice -destination=migratormock_test.go isc.org/stork/server/configmigrator MigrationManager
 
 func mockStatusError(commandName keactrl.CommandName, cmdResponses []interface{}) {
 	command := keactrl.NewCommandBase(commandName, keactrl.DHCPv4)
@@ -1701,4 +1709,128 @@ func TestDHCPOptionsHash(t *testing.T) {
 
 	// Assert
 	require.Equal(t, hash1, hash2)
+}
+
+// Test that the migration of hosts is triggered correctly. The filter on the
+// subnet ID must be applied. Sending commands to the second Kea server fails,
+// so the migration error is returned.
+func TestStartHostsMigration(t *testing.T) {
+	// Arrange
+	db, dbSettings, teardown := dbtest.SetupDatabaseTestCase(t)
+	defer teardown()
+	_ = dbmodel.InitializeSettings(db, 0)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	migrationService := NewMockMigrationManager(ctrl)
+
+	statePuller, err := apps.NewStatePuller(db, nil, nil, nil, nil)
+	require.NoError(t, err)
+	hostPuller, err := kea.NewHostsPuller(db, nil, nil, nil)
+	require.NoError(t, err)
+	pullers := &apps.Pullers{
+		KeaHostsPuller:  hostPuller,
+		AppsStatePuller: statePuller,
+	}
+	require.False(t, statePuller.Paused())
+	require.False(t, hostPuller.Paused())
+
+	rapi, err := NewRestAPI(dbSettings, db, migrationService, pullers)
+	require.NoError(t, err)
+
+	ctx, err := rapi.SessionManager.Load(context.Background(), "")
+	require.NoError(t, err)
+
+	migrationService.EXPECT().StartMigration(gomock.Any(), gomock.Any()).
+		Do(func(ctx context.Context, migrator configmigrator.Migrator) {
+			// Check if the proper puller are paused.
+			migrator.Begin()
+			require.True(t, statePuller.Paused())
+			require.True(t, hostPuller.Paused())
+
+			// Check if the pullers are unpaused.
+			err = migrator.End()
+			require.NoError(t, err)
+			require.False(t, statePuller.Paused())
+			require.False(t, hostPuller.Paused())
+		}).
+		Return(&configmigrator.MigrationStatus{
+			ID:                  12341,
+			Context:             ctx,
+			StartDate:           time.Date(2025, 2, 13, 10, 24, 45, 432000000, time.UTC),
+			EndDate:             time.Time{},
+			Canceling:           false,
+			ProcessedItemsCount: 2,
+			TotalItemsCount:     10,
+			Errors: []configmigrator.MigrationError{
+				{Error: errors.New("foo"), ID: 4, Label: "host-4", CauseEntity: "host"},
+				{Error: errors.New("bar"), ID: 2, Label: "host-2", CauseEntity: "host"},
+			},
+			GeneralError:      nil,
+			ElapsedTime:       5 * time.Second,
+			EstimatedLeftTime: 1 * time.Minute,
+		}, nil)
+
+	// Act
+	rsp := rapi.StartHostsMigration(ctx, dhcp.StartHostsMigrationParams{
+		SubnetID: storkutil.Ptr(int64(42)),
+	})
+
+	// Assert
+	require.IsType(t, &dhcp.StartHostsMigrationOK{}, rsp)
+	okRsp := rsp.(*dhcp.StartHostsMigrationOK)
+
+	require.EqualValues(t, 12341, okRsp.Payload.ID)
+	require.Zero(t, okRsp.Payload.AuthorID)
+	require.Empty(t, okRsp.Payload.AuthorLogin)
+	require.Equal(t, "2025-02-13T10:24:45.432Z", okRsp.Payload.StartDate.String())
+	require.Nil(t, okRsp.Payload.EndDate)
+	require.False(t, okRsp.Payload.Canceling)
+	require.EqualValues(t, 2, okRsp.Payload.ProcessedItemsCount)
+	require.EqualValues(t, 10, okRsp.Payload.TotalItemsCount)
+	require.EqualValues(t, 2, okRsp.Payload.Errors.Total)
+	require.Len(t, okRsp.Payload.Errors.Items, 2)
+	require.ElementsMatch(t, []*models.MigrationError{
+		{Error: "foo", ID: 4, Label: "host-4", CauseEntity: "host"},
+		{Error: "bar", ID: 2, Label: "host-2", CauseEntity: "host"},
+	}, okRsp.Payload.Errors.Items)
+	require.Nil(t, okRsp.Payload.GeneralError)
+	require.Equal(t, strfmt.Duration(5*time.Second), okRsp.Payload.ElapsedTime)
+	require.Equal(t, strfmt.Duration(1*time.Minute), okRsp.Payload.EstimatedLeftTime)
+}
+
+// Test that the error status is returned if the migration fails to start.
+func TestStartHostsMigrationFailed(t *testing.T) {
+	// Arrange
+	db, dbSettings, teardown := dbtest.SetupDatabaseTestCase(t)
+	defer teardown()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	migrationService := NewMockMigrationManager(ctrl)
+	pullers := &apps.Pullers{}
+
+	rapi, err := NewRestAPI(dbSettings, db, migrationService, pullers)
+	require.NoError(t, err)
+
+	ctx, err := rapi.SessionManager.Load(context.Background(), "")
+	require.NoError(t, err)
+
+	migrationService.EXPECT().StartMigration(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("migration failed"))
+
+	// Act
+	rsp := rapi.StartHostsMigration(ctx, dhcp.StartHostsMigrationParams{
+		SubnetID: storkutil.Ptr(int64(42)),
+	})
+
+	// Assert
+	require.IsType(t, &dhcp.StartHostsMigrationDefault{}, rsp)
+	rspDefault := rsp.(*dhcp.StartHostsMigrationDefault)
+
+	require.Equal(t, http.StatusInternalServerError, getStatusCode(*rspDefault))
+	require.Equal(t, "Problem with migrating host reservations", *rspDefault.Payload.Message)
+	require.NotContains(t, "migration failed", *rspDefault.Payload.Message)
 }

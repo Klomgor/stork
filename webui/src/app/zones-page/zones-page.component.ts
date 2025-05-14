@@ -529,6 +529,10 @@ export class ZonesPageComponent implements OnInit, OnDestroy, AfterViewInit {
         }
 
         for (const c in DNSClass) {
+            if (DNSClass[c] === DNSClass.Any) {
+                continue
+            }
+
             this.zoneClasses.push(DNSClass[c])
         }
 
@@ -941,7 +945,7 @@ export class ZonesPageComponent implements OnInit, OnDestroy, AfterViewInit {
 
         const selectedZoneTypes: string[] = zoneTypeFilterMetadata.value ?? []
 
-        if (this.builtinZonesDisplayed && selectedZoneTypes.length === 0) {
+        if (this.builtinZonesDisplayed && selectedZoneTypes.length <= 1) {
             // Builtin zones are displayed because no zoneType filter is applied at all.
             // Change the filter empty value to all values selected, so that only builtin zones will be filtered out later.
             zoneTypeFilterMetadata.value = this.zoneTypes
