@@ -1,6 +1,6 @@
 import { ComponentFixture, fakeAsync, TestBed, tick } from '@angular/core/testing'
 
-import { getSeverity, getTooltip, ZonesPageComponent } from './zones-page.component'
+import { ZonesPageComponent } from './zones-page.component'
 import { provideHttpClientTesting } from '@angular/common/http/testing'
 import { ConfirmationService, MessageService, TableState } from 'primeng/api'
 import { BreadcrumbsComponent } from '../breadcrumbs/breadcrumbs.component'
@@ -12,7 +12,7 @@ import { BreadcrumbModule } from 'primeng/breadcrumb'
 import { HelpTipComponent } from '../help-tip/help-tip.component'
 import { OverlayPanelModule } from 'primeng/overlaypanel'
 import { Router, RouterModule } from '@angular/router'
-import { DNSAppType, DNSClass, DNSService, ZoneInventoryState, ZoneInventoryStates, Zones } from '../backend'
+import { DNSAppType, DNSClass, DNSService, ZoneInventoryState, ZoneInventoryStates, Zones, Zone } from '../backend'
 import { Observable, of } from 'rxjs'
 import {
     HttpEventType,
@@ -33,7 +33,6 @@ import { LocaltimePipe } from '../pipes/localtime.pipe'
 import { TagModule } from 'primeng/tag'
 import createSpyObj = jasmine.createSpyObj
 import objectContaining = jasmine.objectContaining
-import StatusEnum = ZoneInventoryState.StatusEnum
 import { FieldsetModule } from 'primeng/fieldset'
 import { take } from 'rxjs/operators'
 import { PluralizePipe } from '../pipes/pluralize.pipe'
@@ -44,6 +43,8 @@ import { DropdownModule } from 'primeng/dropdown'
 import { MultiSelectModule } from 'primeng/multiselect'
 import { NgZone } from '@angular/core'
 import { hasFilter } from '../table'
+import { ManagedAccessDirective } from '../managed-access.directive'
+import { AuthService } from '../auth.service'
 
 describe('ZonesPageComponent', () => {
     let component: ZonesPageComponent
@@ -54,6 +55,7 @@ describe('ZonesPageComponent', () => {
     let messageService: jasmine.SpyObj<MessageService>
     let messageAddSpy: any
     let getZonesFetchWithStatusSpy: any
+    let authService: AuthService
 
     const noContent = {
         status: HttpStatusCode.NoContent,
@@ -91,7 +93,7 @@ describe('ZonesPageComponent', () => {
                 createdAt: '2025-03-04T20:37:05.096Z',
                 daemonId: 73,
                 status: 'ok',
-                zoneCount: 105,
+                zoneConfigsCount: 105,
             },
             {
                 appId: 31,
@@ -100,7 +102,7 @@ describe('ZonesPageComponent', () => {
                 daemonId: 74,
                 status: 'erred',
                 error: 'Fetching custom error',
-                zoneCount: 105,
+                zoneConfigsCount: 105,
             },
         ],
         total: 2,
@@ -116,7 +118,7 @@ describe('ZonesPageComponent', () => {
                     createdAt: '2025-03-04T20:37:05.096Z',
                     daemonId: 73,
                     status: 'ok',
-                    zoneCount: 105,
+                    zoneConfigsCount: 105,
                 },
                 {
                     appId: 31,
@@ -125,7 +127,7 @@ describe('ZonesPageComponent', () => {
                     daemonId: 74,
                     status: 'erred',
                     error: 'Fetching custom error',
-                    zoneCount: 105,
+                    zoneConfigsCount: 105,
                 },
             ],
             total: 2,
@@ -263,6 +265,7 @@ describe('ZonesPageComponent', () => {
                 FormsModule,
                 DropdownModule,
                 MultiSelectModule,
+                ManagedAccessDirective,
             ],
             declarations: [
                 ZonesPageComponent,
@@ -283,6 +286,8 @@ describe('ZonesPageComponent', () => {
 
         fixture = TestBed.createComponent(ZonesPageComponent)
         component = fixture.componentInstance
+        authService = fixture.debugElement.injector.get(AuthService)
+        spyOn(authService, 'superAdmin').and.returnValue(true)
 
         // By default, fake that wasZoneFetchSent returns false from session storage.
         spyOn(component, 'wasZoneFetchSent').and.returnValue(false)
@@ -434,24 +439,6 @@ describe('ZonesPageComponent', () => {
         expect(messageDe.nativeElement.innerText).toContain('Zones were not fetched yet')
         expect(buttonDe.nativeElement.innerText).toContain('Fetch Zones')
         expect(getZonesSpy).toHaveBeenCalledOnceWith(0, 10, null, null, null, null, null, null)
-    })
-
-    it('should get severity', () => {
-        // Arrange + Act + Assert
-        expect(getSeverity(StatusEnum.Busy)).toEqual('warning')
-        expect(getSeverity(StatusEnum.Ok)).toEqual('success')
-        expect(getSeverity(StatusEnum.Erred)).toEqual('danger')
-        expect(getSeverity(StatusEnum.Uninitialized)).toEqual('secondary')
-        expect(getSeverity(<StatusEnum>'foo')).toEqual('info')
-    })
-
-    it('should get tooltip', () => {
-        // Arrange + Act + Assert
-        expect(getTooltip(StatusEnum.Busy)).toContain('Zone inventory on the agent is busy')
-        expect(getTooltip(StatusEnum.Ok)).toContain('successfully fetched all zones')
-        expect(getTooltip(StatusEnum.Erred)).toContain('Error when communicating with a zone inventory')
-        expect(getTooltip(StatusEnum.Uninitialized)).toContain('Zone inventory on the agent was not initialized')
-        expect(getTooltip(<StatusEnum>'foo')).toBeNull()
     })
 
     it('should open and close tabs', async () => {
@@ -625,6 +612,7 @@ describe('ZonesPageComponent', () => {
         expect(component.appTypes.length).toBeGreaterThan(0)
         expect(component.appTypes[0].value).toBeTruthy()
         expect(component.appTypes[0].name).toBeTruthy()
+        expect(component.zoneClasses).not.toContain(DNSClass.Any)
     })
 
     it('should activate first tab', () => {
@@ -942,5 +930,121 @@ describe('ZonesPageComponent', () => {
                 expect(component.supportedQueryParamFilters[paramKey].enumValues.length).toBeGreaterThan(0)
             }
         }
+    })
+
+    it('should return unique zone types', () => {
+        // Arrange
+        const zone: Zone = {
+            name: 'example.org',
+            id: 10,
+            localZones: [
+                {
+                    zoneType: 'builtin',
+                },
+                {
+                    zoneType: 'builtin',
+                },
+                {
+                    zoneType: 'builtin',
+                },
+                {
+                    zoneType: 'primary',
+                },
+                {
+                    zoneType: 'primary',
+                },
+                {
+                    zoneType: 'secondary',
+                },
+            ],
+        }
+        const expectedTypes = ['primary', 'secondary', 'builtin']
+
+        // Act
+        const result = component.getUniqueZoneTypes(zone)
+
+        // Assert
+        expect(result).toEqual(jasmine.arrayWithExactContents(expectedTypes))
+    })
+
+    it('should return empty unique zone types', () => {
+        // Arrange
+        const zone: Zone = {
+            name: 'example.org',
+            id: 10,
+            localZones: [],
+        }
+
+        // Act
+        const result = component.getUniqueZoneTypes(zone)
+
+        // Assert
+        expect(result).toBeTruthy()
+        expect(result.length).toEqual(0)
+    })
+
+    it('should get zone serial info when there is no mismatch', () => {
+        // Arrange
+        const zone: Zone = {
+            name: 'example.org',
+            id: 10,
+            localZones: [
+                {
+                    serial: 12345,
+                },
+                {
+                    serial: 12345,
+                },
+                {
+                    serial: 12345,
+                },
+            ],
+        }
+
+        // Act
+        const result = component.getZoneSerialInfo(zone)
+
+        // Assert
+        expect(result).toEqual(jasmine.objectContaining({ serial: '12345', hasMismatch: false }))
+    })
+
+    it('should get zone serial info when there is mismatch', () => {
+        // Arrange
+        const zone: Zone = {
+            name: 'example.org',
+            id: 10,
+            localZones: [
+                {
+                    serial: 12345,
+                },
+                {
+                    serial: 12345,
+                },
+                {
+                    serial: 12344,
+                },
+            ],
+        }
+
+        // Act
+        const result = component.getZoneSerialInfo(zone)
+
+        // Assert
+        expect(result).toEqual(jasmine.objectContaining({ serial: '12345', hasMismatch: true }))
+    })
+
+    it('should get zone serial info when there are no local zones', () => {
+        // Arrange
+        const zone: Zone = {
+            name: 'example.org',
+            id: 10,
+            localZones: [],
+        }
+
+        // Act
+        const result = component.getZoneSerialInfo(zone)
+
+        // Assert
+        expect(result).toEqual(jasmine.objectContaining({ serial: 'N/A', hasMismatch: false }))
     })
 })

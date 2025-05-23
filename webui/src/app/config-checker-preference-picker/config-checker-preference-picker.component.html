@@ -94,13 +94,22 @@
     </ng-template>
     <ng-template pTemplate="summary">
         <div class="picker__buttons">
-            <button pButton label="Submit" [disabled]="!hasChanges" (click)="onSubmit()"></button>
+            <button
+                pButton
+                label="Submit"
+                [disabled]="!hasChanges"
+                (click)="onSubmit()"
+                [appAccessEntity]="allowInheritState ? 'daemon-config-checkers' : 'global-config-checkers'"
+                appAccessType="update"
+            ></button>
             <button
                 pButton
                 label="Reset"
                 [disabled]="!hasChanges"
                 class="p-button-secondary"
                 (click)="onReset()"
+                [appAccessEntity]="allowInheritState ? 'daemon-config-checkers' : 'global-config-checkers'"
+                appAccessType="update"
             ></button>
         </div>
     </ng-template>
@@ -115,6 +124,8 @@
             name="select-{{ checker.name }}"
             inputId="select-{{ checker.name }}"
             class="mr-2"
+            [appAccessEntity]="allowInheritState ? 'daemon-config-checkers' : 'global-config-checkers'"
+            appAccessType="update"
         >
         </p-triStateCheckbox>
         <label class="form-check-label p-capitalize-first" for="select-{{ checker.name }}">

@@ -1,7 +1,6 @@
 import { ComponentFixture, TestBed, waitForAsync } from '@angular/core/testing'
 import { KeaAppTabComponent } from './kea-app-tab.component'
-import { ActivatedRoute } from '@angular/router'
-import { RouterTestingModule } from '@angular/router/testing'
+import { ActivatedRoute, provideRouter, RouterModule } from '@angular/router'
 import { HaStatusComponent } from '../ha-status/ha-status.component'
 import { TableModule } from 'primeng/table'
 import { TabViewModule } from 'primeng/tabview'
@@ -41,6 +40,7 @@ import { EventTextComponent } from '../event-text/event-text.component'
 import { VersionStatusComponent } from '../version-status/version-status.component'
 import { Severity, VersionService } from '../version.service'
 import { provideHttpClient, withInterceptorsFromDi } from '@angular/common/http'
+import { ManagedAccessDirective } from '../managed-access.directive'
 
 class Details {
     daemons: any = [
@@ -132,7 +132,7 @@ describe('KeaAppTabComponent', () => {
                 VersionStatusComponent,
             ],
             imports: [
-                RouterTestingModule,
+                RouterModule,
                 TableModule,
                 TabViewModule,
                 PanelModule,
@@ -152,6 +152,7 @@ describe('KeaAppTabComponent', () => {
                 ProgressSpinnerModule,
                 DividerModule,
                 TagModule,
+                ManagedAccessDirective,
             ],
             providers: [
                 UsersService,
@@ -163,6 +164,7 @@ describe('KeaAppTabComponent', () => {
                 { provide: VersionService, useValue: versionServiceStub },
                 provideHttpClient(withInterceptorsFromDi()),
                 provideHttpClientTesting(),
+                provideRouter([]),
             ],
         }).compileComponents()
     }))

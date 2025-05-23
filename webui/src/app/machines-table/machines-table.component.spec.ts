@@ -1,4 +1,4 @@
-import { ComponentFixture, fakeAsync, TestBed, tick } from '@angular/core/testing'
+import { ComponentFixture, fakeAsync, flush, TestBed, tick } from '@angular/core/testing'
 
 import { MachinesTableComponent } from './machines-table.component'
 import { RouterModule } from '@angular/router'
@@ -28,6 +28,8 @@ import objectContaining = jasmine.objectContaining
 import { By } from '@angular/platform-browser'
 import { AppDaemonsStatusComponent } from '../app-daemons-status/app-daemons-status.component'
 import { provideHttpClient, withInterceptorsFromDi } from '@angular/common/http'
+import { ManagedAccessDirective } from '../managed-access.directive'
+import { AuthService } from '../auth.service'
 
 describe('MachinesTableComponent', () => {
     let component: MachinesTableComponent
@@ -37,6 +39,7 @@ describe('MachinesTableComponent', () => {
     let getMachinesSpy: any
     let unauthorizedMachinesCountChangeSpy: any
     let msgService: MessageService
+    let authService: AuthService
 
     // prepare responses for api calls
     const getUnauthorizedMachinesResp: any = {
@@ -139,6 +142,7 @@ describe('MachinesTableComponent', () => {
                 FormsModule,
                 TagModule,
                 TooltipModule,
+                ManagedAccessDirective,
             ],
             providers: [
                 MessageService,
@@ -152,6 +156,8 @@ describe('MachinesTableComponent', () => {
         fixture = TestBed.createComponent(MachinesTableComponent)
         component = fixture.componentInstance
         msgService = fixture.debugElement.injector.get(MessageService)
+        authService = fixture.debugElement.injector.get(AuthService)
+        spyOn(authService, 'superAdmin').and.returnValue(true)
         fixture.detectChanges()
 
         // Do not save table state between tests, because that makes tests unstable.
@@ -544,10 +550,8 @@ describe('MachinesTableComponent', () => {
         expect(selectAllCheckbox).toBeTruthy()
 
         selectAllCheckbox.nativeElement.click()
-
-        tick() // Wait for PrimeNG to react on Select all change
         fixture.detectChanges()
-        tick()
+        flush() // Wait for PrimeNG to react on Select all change
 
         expect(component.selectedMachines.length).toEqual(3)
         expect(component.selectedMachines).toEqual(getUnauthorizedMachinesResp.items)

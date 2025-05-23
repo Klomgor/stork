@@ -1,0 +1,46 @@
+<app-breadcrumbs [items]="breadcrumbs">
+    <div page-help>
+        <ng-container *ngIf="activeTabIndex === 0">
+            <p>
+                This page displays a list of config migrations. The migration moves the entities from the Kea JSON
+                configuration to the Kea database. The migration is a one-time but time-consuming operation. On this
+                page, you can monitor the progress of the migration.
+            </p>
+        </ng-container>
+        <ng-container *ngIf="activeTabIndex !== 0">
+            <p>
+                This page displays the details of the specific migration. You can monitor the progress of the migration
+                and cancel it if necessary.
+            </p>
+        </ng-container>
+    </div>
+</app-breadcrumbs>
+
+<p-tabMenu [model]="tabs" [activeItem]="tabs[activeTabIndex]" [scrollable]="true" styleClass="mb-2">
+    <ng-template pTemplate="item" let-item let-i="index">
+        <a role="menuitem" [routerLink]="item.routerLink" class="p-menuitem-link">
+            <div class="flex justify-content-between">
+                <div class="p-menuitem-text">
+                    <b>{{ item.label }}</b>
+                </div>
+            </div>
+            <div *ngIf="i !== 0" class="pi pi-times close-tab-btn" (click)="closeTab(i, $event)"></div>
+        </a>
+    </ng-template>
+</p-tabMenu>
+
+<div>
+    <div *ngIf="activeTabIndex !== 0" class="p-component">
+        <app-config-migration-tab
+            [migration]="this.tabItems[activeTabIndex]"
+            (cancelMigration)="onCancelMigration($event)"
+            (refreshMigration)="onRefreshMigration($event)"
+        ></app-config-migration-tab>
+    </div>
+    <app-config-migration-table
+        [hidden]="activeTabIndex !== 0"
+        (cancelMigration)="onCancelMigration($event)"
+        (clearMigrations)="onClearFinishedMigrations()"
+        [alteredStatuses]="alteredStatuses"
+    ></app-config-migration-table>
+</div>

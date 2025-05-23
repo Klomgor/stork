@@ -148,6 +148,11 @@ import { BadgeModule } from 'primeng/badge'
 import { MachinesTableComponent } from './machines-table/machines-table.component'
 import { ZonesPageComponent } from './zones-page/zones-page.component'
 import { ByteCharacterComponent } from './byte-character/byte-character.component'
+import { ConfigMigrationPageComponent } from './config-migration-page/config-migration-page.component'
+import { ConfigMigrationTableComponent } from './config-migration-table/config-migration-table.component'
+import { ConfigMigrationTabComponent } from './config-migration-tab/config-migration-tab.component'
+import { DurationPipe } from './pipes/duration.pipe'
+import { ManagedAccessDirective } from './managed-access.directive'
 
 /** Create the OpenAPI client configuration. */
 export function cfgFactory() {
@@ -246,6 +251,10 @@ export function cfgFactory() {
         MachinesTableComponent,
         ZonesPageComponent,
         ByteCharacterComponent,
+        ConfigMigrationPageComponent,
+        ConfigMigrationTableComponent,
+        ConfigMigrationTabComponent,
+        DurationPipe,
     ],
     bootstrap: [AppComponent],
     imports: [
@@ -299,6 +308,7 @@ export function cfgFactory() {
         TreeTableModule,
         BadgeModule,
         SkeletonModule,
+        ManagedAccessDirective,
     ],
     providers: [
         {
