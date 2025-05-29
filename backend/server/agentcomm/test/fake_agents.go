@@ -4,6 +4,7 @@ import (
 	"context"
 	"iter"
 
+	"github.com/miekg/dns"
 	keactrl "isc.org/stork/appctrl/kea"
 	"isc.org/stork/appdata/bind9stats"
 	"isc.org/stork/server/agentcomm"
@@ -149,8 +150,8 @@ func (fa *FakeAgents) ForwardToKeaOverHTTP(ctx context.Context, app agentcomm.Co
 // to this function so as they can be later validated. It also returns a custom
 // response to the command by calling the function specified in the
 // call to NewFakeAgents.
-func (fa *FakeAgents) ForwardToNamedStats(ctx context.Context, app agentcomm.ControlledApp, statsAddress string, statsPort int64, path string, statsOutput interface{}) error {
-	fa.RecordedStatsURL = storkutil.HostWithPortURL(statsAddress, statsPort, false) + path
+func (fa *FakeAgents) ForwardToNamedStats(ctx context.Context, app agentcomm.ControlledApp, statsAddress string, statsPort int64, requestType agentcomm.ForwardToNamedStatsRequestType, statsOutput interface{}) error {
+	fa.RecordedStatsURL = storkutil.HostWithPortURL(statsAddress, statsPort, false)
 
 	// Generate response.
 	if fa.mockNamedFunc != nil {
@@ -187,5 +188,9 @@ func (fa *FakeAgents) TailTextFile(ctx context.Context, machine dbmodel.MachineT
 // FakeAgents specific implementation of the function which gathers the zones from the
 // agents one by one.
 func (fa *FakeAgents) ReceiveZones(ctx context.Context, app agentcomm.ControlledApp, filter *bind9stats.ZoneFilter) iter.Seq2[*bind9stats.ExtendedZone, error] {
+	return nil
+}
+
+func (fa *FakeAgents) ReceiveZoneRRs(ctx context.Context, app agentcomm.ControlledApp, zoneName string, viewName string) iter.Seq2[[]dns.RR, error] {
 	return nil
 }

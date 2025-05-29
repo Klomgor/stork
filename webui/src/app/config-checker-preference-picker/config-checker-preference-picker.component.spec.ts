@@ -11,10 +11,16 @@ import { ConfigCheckerPreferencePickerComponent } from './config-checker-prefere
 import { TriStateCheckboxModule } from 'primeng/tristatecheckbox'
 import { FormsModule } from '@angular/forms'
 import { TagModule } from 'primeng/tag'
+import { ManagedAccessDirective } from '../managed-access.directive'
+import { provideHttpClientTesting } from '@angular/common/http/testing'
+import { provideHttpClient, withInterceptorsFromDi } from '@angular/common/http'
+import { MessageService } from 'primeng/api'
+import { AuthService } from '../auth.service'
 
 describe('ConfigCheckerPreferencePickerComponent', () => {
     let component: ConfigCheckerPreferencePickerComponent
     let fixture: ComponentFixture<ConfigCheckerPreferencePickerComponent>
+    let authService: AuthService
 
     beforeEach(async () => {
         await TestBed.configureTestingModule({
@@ -27,14 +33,18 @@ describe('ConfigCheckerPreferencePickerComponent', () => {
                 FormsModule,
                 TriStateCheckboxModule,
                 TagModule,
+                ManagedAccessDirective,
             ],
             declarations: [HelpTipComponent, ConfigCheckerPreferencePickerComponent],
+            providers: [provideHttpClient(withInterceptorsFromDi()), provideHttpClientTesting(), MessageService],
         }).compileComponents()
     })
 
     beforeEach(() => {
         fixture = TestBed.createComponent(ConfigCheckerPreferencePickerComponent)
         component = fixture.componentInstance
+        authService = fixture.debugElement.injector.get(AuthService)
+        spyOn(authService, 'superAdmin').and.returnValue(true)
         fixture.detectChanges()
     })
 

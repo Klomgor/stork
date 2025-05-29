@@ -309,6 +309,8 @@
                 id="refresh-app-button"
                 icon="pi pi-refresh"
                 (click)="refreshLeases()"
+                appAccessEntity="leases"
+                (appHasAccess)="canGetLeases = $event"
             ></button>
             <ng-container *ngIf="hasAnyLocalHostFromDatabase()">
                 <button
@@ -319,6 +321,8 @@
                     icon="pi pi-pencil"
                     class="p-button-info ml-2"
                     (click)="onHostEditBegin()"
+                    appAccessEntity="host-reservation"
+                    appAccessType="update"
                 ></button>
                 <button
                     type="button"
@@ -328,6 +332,8 @@
                     icon="pi pi-times"
                     class="p-button-danger ml-2"
                     (click)="confirmDeleteHost()"
+                    appAccessEntity="host-reservation"
+                    appAccessType="delete"
                 ></button>
             </ng-container>
         </div>

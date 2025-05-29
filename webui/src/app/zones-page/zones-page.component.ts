@@ -31,47 +31,7 @@ import { HttpResponse, HttpStatusCode } from '@angular/common/http'
 import { FilterMetadata } from 'primeng/api/filtermetadata'
 import { hasFilter, parseBoolean } from '../table'
 import { ActivatedRoute, ParamMap, Router } from '@angular/router'
-import StatusEnum = ZoneInventoryState.StatusEnum
-
-/**
- * Returns tooltip message for given ZoneInventoryState status.
- * @param status ZoneInventoryState status
- * @return tooltip message
- */
-export function getTooltip(status: StatusEnum) {
-    switch (status) {
-        case 'busy':
-            return 'Zone inventory on the agent is busy and cannot return zones at this time. Try again later.'
-        case 'ok':
-            return 'Stork server successfully fetched all zones from the DNS server.'
-        case 'erred':
-            return 'Error when communicating with a zone inventory on an agent.'
-        case 'uninitialized':
-            return 'Zone inventory on the agent was not initialized. Trying again or restarting the agent can help.'
-        default:
-            return null
-    }
-}
-
-/**
- * Returns PrimeNG severity for given ZoneInventoryState status.
- * @param status ZoneInventoryState status
- * @return PrimeNG severity
- */
-export function getSeverity(status: StatusEnum) {
-    switch (status) {
-        case 'ok':
-            return 'success'
-        case 'busy':
-            return 'warning'
-        case 'erred':
-            return 'danger'
-        case 'uninitialized':
-            return 'secondary'
-        default:
-            return 'info'
-    }
-}
+import { getTooltip, getSeverity } from '../zone-inventory-utils'
 
 @Component({
     selector: 'app-zones-page',
@@ -237,6 +197,7 @@ export class ZonesPageComponent implements OnInit, OnDestroy, AfterViewInit {
             if (resp.status === HttpStatusCode.Accepted) {
                 this.fetchAppsCompletedCount = resp.completedAppsCount
                 this.fetchTotalAppsCount = resp.appsCount
+                this.onLazyLoadZones(this.zonesTable?.createLazyLoadMetadata(), false)
             } else if (resp.status === HttpStatusCode.Ok) {
                 this.fetchAppsCompletedCount = this.fetchTotalAppsCount
                 this.zonesFetchStates = resp.items ?? []
@@ -287,6 +248,11 @@ export class ZonesPageComponent implements OnInit, OnDestroy, AfterViewInit {
      * @private
      */
     private _zonesTableFilter$ = new Subject<{ value: any; filterConstraint: FilterMetadata }>()
+
+    /**
+     * Map keeping zone viewer dialog visibility state for each zone viewer dialog.
+     */
+    zoneViewerDialogVisible: Map<string, boolean> = new Map()
 
     /**
      * Class constructor.
@@ -529,6 +495,10 @@ export class ZonesPageComponent implements OnInit, OnDestroy, AfterViewInit {
         }
 
         for (const c in DNSClass) {
+            if (DNSClass[c] === DNSClass.Any) {
+                continue
+            }
+
             this.zoneClasses.push(DNSClass[c])
         }
 
@@ -734,6 +704,7 @@ export class ZonesPageComponent implements OnInit, OnDestroy, AfterViewInit {
      */
     private _sendPutZonesFetch() {
         this._subscriptions.add(this._putZonesFetchGuard.subscribe())
+        this.fetchAppsCompletedCount = 0
 
         lastValueFrom(
             this.dnsService.putZonesFetch().pipe(
@@ -789,9 +760,13 @@ export class ZonesPageComponent implements OnInit, OnDestroy, AfterViewInit {
     /**
      * Lazily loads paged zones data from backend.
      * @param event PrimeNG TableLazyLoadEvent with metadata about table pagination.
+     * @param showLoadingState when set to false, zones table will not show loading state when data is lazily loaded from backend.
+     *                         It is useful when zones fetch is in progress and table data is refreshed every polling interval - it
+     *                         prevents table UI from flickering.
+     *                         Defaults to true.
      */
-    onLazyLoadZones(event: TableLazyLoadEvent) {
-        this.zonesLoading = true
+    onLazyLoadZones(event: TableLazyLoadEvent, showLoadingState: boolean = true) {
+        this.zonesLoading = showLoadingState
         this.cd.detectChanges() // in order to solve NG0100: ExpressionChangedAfterItHasBeenCheckedError
         lastValueFrom(
             this.dnsService.getZones(
@@ -806,9 +781,11 @@ export class ZonesPageComponent implements OnInit, OnDestroy, AfterViewInit {
             )
         )
             .then((resp) => {
-                this.zonesExpandedRows = {}
                 this.zones = resp?.items ?? []
                 this.zonesTotal = resp?.total ?? 0
+                if (!this.zonesTotal) {
+                    this.zonesExpandedRows = {}
+                }
             })
             .catch((err) => {
                 const msg = getErrorMessage(err)
@@ -941,7 +918,7 @@ export class ZonesPageComponent implements OnInit, OnDestroy, AfterViewInit {
 
         const selectedZoneTypes: string[] = zoneTypeFilterMetadata.value ?? []
 
-        if (this.builtinZonesDisplayed && selectedZoneTypes.length === 0) {
+        if (this.builtinZonesDisplayed && selectedZoneTypes.length <= 1) {
             // Builtin zones are displayed because no zoneType filter is applied at all.
             // Change the filter empty value to all values selected, so that only builtin zones will be filtered out later.
             zoneTypeFilterMetadata.value = this.zoneTypes
@@ -959,5 +936,73 @@ export class ZonesPageComponent implements OnInit, OnDestroy, AfterViewInit {
 
         // Apply filters to the zones table.
         this.zone.run(() => this.router.navigate([], { queryParams: this._zoneFiltersToQueryParams() }))
+    }
+
+    /**
+     * Creates a unique key for the zone viewer dialog visibility map.
+     *
+     * @param daemonId daemon ID.
+     * @param viewName view name.
+     * @param zoneId zone ID.
+     * @returns unique key.
+     */
+    private _getZoneViewerKey(daemonId: number, viewName: string, zoneId: number): string {
+        return `${daemonId}:${viewName}:${zoneId}`
+    }
+
+    /**
+     * Sets the visibility state of the zone viewer dialog.
+     *
+     * @param daemonId daemon ID.
+     * @param viewName view name.
+     * @param zoneId zone ID.
+     * @param visible visibility state.
+     */
+    setZoneViewerDialogVisible(daemonId: number, viewName: string, zoneId: number, visible: boolean) {
+        const key = this._getZoneViewerKey(daemonId, viewName, zoneId)
+        this.zoneViewerDialogVisible.set(key, visible)
+    }
+
+    /**
+     * Returns the visibility state of the zone viewer dialog.
+     *
+     * @param daemonId daemon ID.
+     * @param viewName view name.
+     * @param zoneId zone ID.
+     * @returns visibility state.
+     */
+    getZoneViewerDialogVisible(daemonId: number, viewName: string, zoneId: number): boolean {
+        const key = this._getZoneViewerKey(daemonId, viewName, zoneId)
+        return this.zoneViewerDialogVisible.get(key) ?? false
+    }
+
+    /**
+     * Returns unique zone types for a given zone
+     * @param zone Zone to get types from
+     */
+    getUniqueZoneTypes(zone: Zone): string[] {
+        if (!zone?.localZones?.length) {
+            return []
+        }
+        return [...new Set(zone.localZones.map((lz) => lz.zoneType))]
+    }
+
+    /**
+     * Gets serial information for a zone
+     * @param zone Zone to analyze
+     * @returns Object containing serial and mismatch flag
+     */
+    getZoneSerialInfo(zone: Zone): { serial: string; hasMismatch: boolean } {
+        if (!zone?.localZones?.length) {
+            return { serial: 'N/A', hasMismatch: false }
+        }
+
+        const serials = zone.localZones.map((lz) => lz.serial)
+        const uniqueSerials = [...new Set(serials)]
+
+        return {
+            serial: uniqueSerials[0]?.toString() ?? 'N/A',
+            hasMismatch: uniqueSerials.length > 1,
+        }
     }
 }

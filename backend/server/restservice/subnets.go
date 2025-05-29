@@ -87,8 +87,8 @@ func (r *RestAPI) convertSubnetToRestAPI(sn *dbmodel.Subnet) *models.Subnet {
 		ID:               sn.ID,
 		Subnet:           sn.Prefix,
 		ClientClass:      sn.ClientClass,
-		AddrUtilization:  float64(sn.AddrUtilization) / 10,
-		PdUtilization:    float64(sn.PdUtilization) / 10,
+		AddrUtilization:  float64(sn.AddrUtilization) * 100.,
+		PdUtilization:    float64(sn.PdUtilization) * 100,
 		Stats:            sn.Stats,
 		StatsCollectedAt: convertToOptionalDatetime(sn.StatsCollectedAt),
 	}
@@ -112,7 +112,10 @@ func (r *RestAPI) convertSubnetToRestAPI(sn *dbmodel.Subnet) *models.Subnet {
 		}
 		for _, poolDetails := range lsn.AddressPools {
 			pool := &models.Pool{
-				Pool: storkutil.Ptr(poolDetails.LowerBound + "-" + poolDetails.UpperBound),
+				Pool:             storkutil.Ptr(poolDetails.LowerBound + "-" + poolDetails.UpperBound),
+				Stats:            poolDetails.Stats,
+				StatsCollectedAt: convertToOptionalDatetime(poolDetails.StatsCollectedAt),
+				Utilization:      float64(poolDetails.Utilization) * 100,
 			}
 			if poolDetails.KeaParameters != nil {
 				pool.KeaConfigPoolParameters = &models.KeaConfigPoolParameters{
@@ -121,6 +124,7 @@ func (r *RestAPI) convertSubnetToRestAPI(sn *dbmodel.Subnet) *models.Subnet {
 					},
 					KeaConfigClientClassParameters: models.KeaConfigClientClassParameters{
 						ClientClass:               storkutil.NullifyEmptyString(poolDetails.KeaParameters.ClientClass),
+						ClientClasses:             poolDetails.KeaParameters.ClientClasses,
 						EvaluateAdditionalClasses: poolDetails.KeaParameters.EvaluateAdditionalClasses,
 						RequireClientClasses:      poolDetails.KeaParameters.RequireClientClasses,
 					},
@@ -137,9 +141,12 @@ func (r *RestAPI) convertSubnetToRestAPI(sn *dbmodel.Subnet) *models.Subnet {
 			prefix := prefixPoolDetails.Prefix
 			delegatedLength := int64(prefixPoolDetails.DelegatedLen)
 			pool := &models.DelegatedPrefixPool{
-				Prefix:          &prefix,
-				DelegatedLength: &delegatedLength,
-				ExcludedPrefix:  prefixPoolDetails.ExcludedPrefix,
+				Prefix:           &prefix,
+				DelegatedLength:  &delegatedLength,
+				ExcludedPrefix:   prefixPoolDetails.ExcludedPrefix,
+				Stats:            prefixPoolDetails.Stats,
+				StatsCollectedAt: convertToOptionalDatetime(prefixPoolDetails.StatsCollectedAt),
+				Utilization:      float64(prefixPoolDetails.Utilization) * 100,
 			}
 			localSubnet.PrefixDelegationPools = append(localSubnet.PrefixDelegationPools, pool)
 			if prefixPoolDetails.KeaParameters != nil {
@@ -149,6 +156,7 @@ func (r *RestAPI) convertSubnetToRestAPI(sn *dbmodel.Subnet) *models.Subnet {
 					},
 					KeaConfigClientClassParameters: models.KeaConfigClientClassParameters{
 						ClientClass:               storkutil.NullifyEmptyString(prefixPoolDetails.KeaParameters.ClientClass),
+						ClientClasses:             prefixPoolDetails.KeaParameters.ClientClasses,
 						EvaluateAdditionalClasses: prefixPoolDetails.KeaParameters.EvaluateAdditionalClasses,
 						RequireClientClasses:      prefixPoolDetails.KeaParameters.RequireClientClasses,
 					},
@@ -172,6 +180,7 @@ func (r *RestAPI) convertSubnetToRestAPI(sn *dbmodel.Subnet) *models.Subnet {
 				},
 				KeaConfigClientClassParameters: models.KeaConfigClientClassParameters{
 					ClientClass:               storkutil.NullifyEmptyString(keaParameters.ClientClass),
+					ClientClasses:             keaParameters.ClientClasses,
 					EvaluateAdditionalClasses: keaParameters.EvaluateAdditionalClasses,
 					RequireClientClasses:      keaParameters.RequireClientClasses,
 				},
@@ -312,6 +321,7 @@ func (r *RestAPI) convertSubnetFromRestAPI(restSubnet *models.Subnet) (*dbmodel.
 				pool.KeaParameters = &keaconfig.PoolParameters{
 					ClientClassParameters: keaconfig.ClientClassParameters{
 						ClientClass:               storkutil.NullifyEmptyString(poolDetails.KeaConfigPoolParameters.ClientClass),
+						ClientClasses:             poolDetails.KeaConfigPoolParameters.ClientClasses,
 						EvaluateAdditionalClasses: poolDetails.KeaConfigPoolParameters.EvaluateAdditionalClasses,
 						RequireClientClasses:      poolDetails.KeaConfigPoolParameters.RequireClientClasses,
 					},
@@ -336,6 +346,7 @@ func (r *RestAPI) convertSubnetFromRestAPI(restSubnet *models.Subnet) (*dbmodel.
 				pool.KeaParameters = &keaconfig.PoolParameters{
 					ClientClassParameters: keaconfig.ClientClassParameters{
 						ClientClass:               storkutil.NullifyEmptyString(prefixPoolDetails.KeaConfigPoolParameters.ClientClass),
+						ClientClasses:             prefixPoolDetails.KeaConfigPoolParameters.ClientClasses,
 						EvaluateAdditionalClasses: prefixPoolDetails.KeaConfigPoolParameters.EvaluateAdditionalClasses,
 						RequireClientClasses:      prefixPoolDetails.KeaConfigPoolParameters.RequireClientClasses,
 					},
@@ -362,6 +373,7 @@ func (r *RestAPI) convertSubnetFromRestAPI(restSubnet *models.Subnet) (*dbmodel.
 				},
 				ClientClassParameters: keaconfig.ClientClassParameters{
 					ClientClass:               storkutil.NullifyEmptyString(keaParameters.ClientClass),
+					ClientClasses:             keaParameters.ClientClasses,
 					EvaluateAdditionalClasses: keaParameters.EvaluateAdditionalClasses,
 					RequireClientClasses:      keaParameters.RequireClientClasses,
 				},

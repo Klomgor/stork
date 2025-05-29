@@ -1,7 +1,6 @@
 import { ComponentFixture, TestBed, fakeAsync, tick, waitForAsync } from '@angular/core/testing'
 
 import { Bind9AppTabComponent } from './bind9-app-tab.component'
-import { RouterTestingModule } from '@angular/router/testing'
 import { TooltipModule } from 'primeng/tooltip'
 import { TabViewModule } from 'primeng/tabview'
 import { MessageService } from 'primeng/api'
@@ -29,6 +28,9 @@ import { TableModule } from 'primeng/table'
 import { VersionStatusComponent } from '../version-status/version-status.component'
 import { Severity, VersionService } from '../version.service'
 import { provideHttpClient, withInterceptorsFromDi } from '@angular/common/http'
+import { provideRouter, RouterModule } from '@angular/router'
+import { ManagedAccessDirective } from '../managed-access.directive'
+import { ButtonModule } from 'primeng/button'
 
 class Daemon {
     name = 'named'
@@ -82,7 +84,7 @@ describe('Bind9AppTabComponent', () => {
             ],
             imports: [
                 FormsModule,
-                RouterTestingModule,
+                RouterModule,
                 TooltipModule,
                 TabViewModule,
                 DialogModule,
@@ -91,6 +93,8 @@ describe('Bind9AppTabComponent', () => {
                 OverlayPanelModule,
                 DataViewModule,
                 TableModule,
+                ManagedAccessDirective,
+                ButtonModule,
             ],
             providers: [
                 UsersService,
@@ -101,6 +105,7 @@ describe('Bind9AppTabComponent', () => {
                 { provide: VersionService, useValue: versionServiceStub },
                 provideHttpClient(withInterceptorsFromDi()),
                 provideHttpClientTesting(),
+                provideRouter([]),
             ],
         }).compileComponents()
     }))

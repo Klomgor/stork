@@ -57,6 +57,8 @@
                 icon="pi pi-plus"
                 style="margin-right: 20px"
                 (click)="showNewUserTab()"
+                appAccessEntity="users"
+                appAccessType="create"
             ></button>
         </div>
     </div>
@@ -118,7 +120,7 @@
     </p-table>
 </div>
 
-<div *ngIf="existingUserTab" class="p-component">
+<div *ngIf="existingUserTab" class="p-component" appAccessEntity="user">
     <div style="display: flex; margin: 10px">
         <div class="grid mt-2 max-w-50rem">
             <div class="col-12 sm:col-3">
@@ -191,6 +193,8 @@
                     icon="pi pi-pencil"
                     (click)="editUserInfo(userTab)"
                     class="flex-none"
+                    appAccessEntity="users"
+                    appAccessType="update"
                 ></button>
                 <button
                     type="submit"
@@ -200,6 +204,8 @@
                     id="delete-user-button"
                     icon="pi pi-trash"
                     (click)="confirmDeleteUser()"
+                    appAccessEntity="user"
+                    appAccessType="delete"
                 ></button>
             </div>
         </div>
@@ -219,11 +225,13 @@
                     </p>
                     <br />
                     <p>
-                        The user must be associated with an existing system group. Currently there are two groups
-                        available: super-admin and admin. Users belonging to the super-admin group have full control
-                        over the system, including creating and modifying user accounts. Users belonging to the admin
-                        group have similar permissions, with the exception that they are not allowed to create and/or
-                        modify user accounts. However, they are allowed to update their own passwords.
+                        The user must be associated with an existing system group. Currently there are three groups
+                        available: super-admin, admin and read-only. Users belonging to the super-admin group have full
+                        control over the system, including creating and modifying user accounts. Users belonging to the
+                        admin group have similar permissions, with the exception that they are not allowed to create
+                        and/or modify user accounts. However, they are allowed to update their own passwords. Users that
+                        belong to the read-only group cannot perform Create, Update nor Delete actions in Stork UI and
+                        in the REST API endpoints.
                     </p>
                 </p-panel>
                 <p-panel header="Editing an account" *ngIf="editedUserTab">
@@ -352,6 +360,9 @@
                             <div class="col-12 sm:col-9 sm:col-offset-3 mt-2" *ngIf="isFeedbackNeeded('userGroup')">
                                 <p-message severity="error" [text]="buildFeedbackMessage('userGroup')"></p-message>
                             </div>
+                            <div class="col-12 sm:col-offset-3 sm:col-9">
+                                <small>{{ getGroupDescription(userForm.controls.userGroup.value?.id) }}</small>
+                            </div>
                         </div>
                         <ng-container *ngIf="isInternalUser">
                             <div class="field grid">
@@ -432,6 +443,8 @@
                                 label="Save"
                                 id="save-button"
                                 (click)="userFormSave()"
+                                appAccessEntity="users"
+                                [appAccessType]="newUserTab ? 'create' : 'update'"
                             ></button>
                             <button
                                 type="submit"

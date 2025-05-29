@@ -14,6 +14,7 @@ import (
 	keaconfig "isc.org/stork/appcfg/kea"
 	"isc.org/stork/server/apps/kea"
 	"isc.org/stork/server/config"
+	"isc.org/stork/server/configmigrator/entitymigrator"
 	dbmodel "isc.org/stork/server/database/model"
 	"isc.org/stork/server/gen/models"
 	dhcp "isc.org/stork/server/gen/restapi/operations/d_h_c_p"
@@ -626,5 +627,45 @@ func (r *RestAPI) DeleteHost(ctx context.Context, params dhcp.DeleteHostParams) 
 	}
 	// Send OK to the client.
 	rsp := dhcp.NewDeleteHostOK()
+	return rsp
+}
+
+// Implements the POST call to migrate host reservations from Kea configuration
+// to the database. Starts a migration of host reservations from Kea
+// configuration to the database. It works in the background. The handler is
+// non-blocking. Returns an initial status of the migration.
+func (r *RestAPI) StartHostsMigration(ctx context.Context, params dhcp.StartHostsMigrationParams) middleware.Responder {
+	// Create a new host migrator.
+	migrator := entitymigrator.NewHostMigrator(
+		dbmodel.HostsByPageFilters{
+			AppID:            params.AppID,
+			SubnetID:         params.SubnetID,
+			LocalSubnetID:    params.LocalSubnetID,
+			FilterText:       params.Text,
+			Global:           params.Global,
+			DHCPDataConflict: storkutil.Ptr(false),
+		},
+		r.DB,
+		r.Agents,
+		r.DHCPOptionDefinitionLookup,
+		r.DaemonLocker,
+		r.Pullers.AppsStatePuller, r.Pullers.KeaHostsPuller,
+	)
+	// Start the migration.
+	status, err := r.MigrationService.StartMigration(ctx, migrator)
+	if err != nil {
+		msg := "Problem with migrating host reservations"
+		log.WithError(err).Error(msg)
+		rsp := dhcp.NewStartHostsMigrationDefault(http.StatusInternalServerError).
+			WithPayload(&models.APIError{
+				Message: &msg,
+			})
+		return rsp
+	}
+
+	// Send the results to the client.
+	rsp := dhcp.NewStartHostsMigrationOK().WithPayload(
+		r.convertMigrationStatusToRestAPI(status),
+	)
 	return rsp
 }

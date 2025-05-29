@@ -24,6 +24,7 @@ import { CommunicationStatusPageComponent } from './communication-status-page/co
 import { KeaGlobalConfigurationPageComponent } from './kea-global-configuration-page/kea-global-configuration-page.component'
 import { VersionPageComponent } from './version-page/version-page.component'
 import { ZonesPageComponent } from './zones-page/zones-page.component'
+import { ConfigMigrationPageComponent } from './config-migration-page/config-migration-page.component'
 
 const routes: Routes = [
     {
@@ -53,11 +54,13 @@ const routes: Routes = [
         path: 'machines/:id',
         component: MachinesPageComponent,
         canActivate: [AuthGuard],
+        data: { key: 'machine' },
     },
     {
         path: 'communication',
         component: CommunicationStatusPageComponent,
         canActivate: [AuthGuard],
+        data: { key: 'communication' },
     },
     {
         path: 'apps/:appType',
@@ -68,16 +71,19 @@ const routes: Routes = [
         path: 'apps/:appType/:id',
         component: AppsPageComponent,
         canActivate: [AuthGuard],
+        data: { key: 'app' },
     },
     {
         path: 'apps/kea/:appId/daemons/:daemonId/config',
         component: KeaDaemonConfigurationPageComponent,
         canActivate: [AuthGuard],
+        data: { key: 'daemon-config' },
     },
     {
         path: 'dhcp/leases',
         component: LeaseSearchPageComponent,
         canActivate: [AuthGuard],
+        data: { key: 'leases' },
     },
     {
         path: 'dhcp/hosts',
@@ -88,6 +94,7 @@ const routes: Routes = [
         path: 'dhcp/hosts/:id',
         component: HostsPageComponent,
         canActivate: [AuthGuard],
+        data: { key: 'host-reservation' },
     },
     {
         path: 'dhcp/subnets',
@@ -98,6 +105,7 @@ const routes: Routes = [
         path: 'dhcp/subnets/:id',
         component: SubnetsPageComponent,
         canActivate: [AuthGuard],
+        data: { key: 'subnet' },
     },
     {
         path: 'dhcp/shared-networks',
@@ -108,6 +116,7 @@ const routes: Routes = [
         path: 'dhcp/shared-networks/:id',
         component: SharedNetworksPageComponent,
         canActivate: [AuthGuard],
+        data: { key: 'shared-network' },
     },
     {
         path: 'dns/zones',
@@ -118,16 +127,19 @@ const routes: Routes = [
         path: 'dns/zones/:id',
         component: ZonesPageComponent,
         canActivate: [AuthGuard],
+        data: { key: 'zones' },
     },
     {
         path: 'apps/kea/:appId/daemons/:daemonId/global-config',
         component: KeaGlobalConfigurationPageComponent,
         canActivate: [AuthGuard],
+        data: { key: 'daemon-global-config' },
     },
     {
         path: 'swagger-ui',
         component: SwaggerUiComponent,
         canActivate: [AuthGuard],
+        data: { key: 'swagger' },
     },
     {
         path: 'profile',
@@ -143,31 +155,30 @@ const routes: Routes = [
         path: 'profile/password',
         component: PasswordChangePageComponent,
         canActivate: [AuthGuard],
+        data: { key: 'user-password' },
     },
     {
         path: 'users',
-        component: UsersPageComponent,
-        canActivate: [AuthGuard],
+        pathMatch: 'full',
+        redirectTo: 'users/list',
     },
     {
         path: 'users/:id',
         component: UsersPageComponent,
         canActivate: [AuthGuard],
-    },
-    {
-        path: 'users/new',
-        component: UsersPageComponent,
-        canActivate: [AuthGuard],
+        data: { key: 'users' },
     },
     {
         path: 'settings',
         component: SettingsPageComponent,
         canActivate: [AuthGuard],
+        data: { key: 'stork-settings' },
     },
     {
         path: 'events',
         component: EventsPageComponent,
         canActivate: [AuthGuard],
+        data: { key: 'events' },
     },
     {
         path: 'forbidden',
@@ -177,19 +188,35 @@ const routes: Routes = [
         path: 'logs/:id',
         component: LogViewPageComponent,
         canActivate: [AuthGuard],
+        data: { key: 'logs' },
     },
     {
         path: 'review-checkers',
         component: ConfigCheckerPreferencePageComponent,
         canActivate: [AuthGuard],
+        data: { key: 'global-config-checkers' },
     },
     {
         path: 'versions',
         component: VersionPageComponent,
         canActivate: [AuthGuard],
+        data: { key: 'versions' },
+    },
+    {
+        path: 'config-migrations',
+        component: ConfigMigrationPageComponent,
+        canActivate: [AuthGuard],
+        data: { key: 'migrations' },
+    },
+    {
+        path: 'config-migrations/:id',
+        component: ConfigMigrationPageComponent,
+        canActivate: [AuthGuard],
+        data: { key: 'migrations' },
     },
 
     // otherwise redirect to home
+    // TODO: #1816 - there should be a redirection to the dedicated 404 component.
     { path: '**', redirectTo: '/' },
 ]
 

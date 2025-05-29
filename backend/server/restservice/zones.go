@@ -3,11 +3,14 @@ package restservice
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	dnslib "github.com/miekg/dns"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"isc.org/stork/server/agentcomm"
 	dbmodel "isc.org/stork/server/database/model"
 	"isc.org/stork/server/dnsop"
 	"isc.org/stork/server/gen/models"
@@ -109,13 +112,13 @@ func (r *RestAPI) GetZonesFetch(ctx context.Context, params dns.GetZonesFetchPar
 	var restStates []*models.ZoneInventoryState
 	for _, state := range states {
 		restStates = append(restStates, &models.ZoneInventoryState{
-			AppID:     state.Daemon.AppID,
-			AppName:   state.Daemon.App.Name,
-			CreatedAt: strfmt.DateTime(state.CreatedAt),
-			DaemonID:  state.DaemonID,
-			Error:     state.State.Error,
-			Status:    string(state.State.Status),
-			ZoneCount: state.State.ZoneCount,
+			AppID:            state.Daemon.AppID,
+			AppName:          state.Daemon.App.Name,
+			CreatedAt:        strfmt.DateTime(state.CreatedAt),
+			DaemonID:         state.DaemonID,
+			Error:            state.State.Error,
+			Status:           string(state.State.Status),
+			ZoneConfigsCount: state.State.ZoneCount,
 		})
 	}
 	payload := models.ZoneInventoryStates{
@@ -141,4 +144,71 @@ func (r *RestAPI) PutZonesFetch(ctx context.Context, params dns.PutZonesFetchPar
 		})
 		return rsp
 	}
+}
+
+// Returns the zone contents (RRs) for a specified view, zone and daemon.
+func (r *RestAPI) GetZoneRRs(ctx context.Context, params dns.GetZoneRRsParams) middleware.Responder {
+	var (
+		restRrs               []*models.ZoneRR
+		alreadyRequestedError *dnsop.ManagerRRsAlreadyRequestedError
+		busyError             *agentcomm.ZoneInventoryBusyError
+		notInitedError        *agentcomm.ZoneInventoryNotInitedError
+	)
+	for rrs, err := range r.DNSManager.GetZoneRRs(params.ZoneID, params.DaemonID, params.ViewName) {
+		if err != nil {
+			msg := "Failed to get zone contents using zone transfer"
+			log.WithError(err).Error(msg)
+			switch {
+			case errors.As(err, &alreadyRequestedError):
+				// There is another request in progress for the same zone.
+				rsp := dns.NewGetZoneRRsDefault(http.StatusConflict).WithPayload(&models.APIError{
+					Message: storkutil.Ptr(errors.WithMessage(alreadyRequestedError, msg).Error()),
+				})
+				return rsp
+			case errors.As(err, &busyError):
+				// The zone inventory is busy populating or sending zones to the server.
+				rsp := dns.NewGetZoneRRsDefault(http.StatusConflict).WithPayload(&models.APIError{
+					Message: storkutil.Ptr(errors.WithMessage(busyError, msg).Error()),
+				})
+				return rsp
+			case errors.As(err, &notInitedError):
+				// The zone inventory is not initialized.
+				rsp := dns.NewGetZoneRRsDefault(http.StatusServiceUnavailable).WithPayload(&models.APIError{
+					Message: storkutil.Ptr(errors.WithMessage(notInitedError, msg).Error()),
+				})
+				return rsp
+			default:
+				// An unknown error occurred.
+				rsp := dns.NewGetZoneRRsDefault(http.StatusInternalServerError).WithPayload(&models.APIError{
+					Message: storkutil.Ptr(errors.WithMessage(err, msg).Error()),
+				})
+				return rsp
+			}
+		}
+		for _, rr := range rrs {
+			// Extract the RR data.
+			var data string
+			fields := strings.Fields(rr.String())
+			// The full RR record has the following format:
+			// <name> <ttl> <class> <type> <data>
+			// We are interested in extracting the <data> field.
+			if len(fields) > 4 {
+				data = strings.Join(fields[4:], " ")
+			}
+			// Convert the RR to the REST API format.
+			restRrs = append(restRrs, &models.ZoneRR{
+				Name:    rr.Header().Name,
+				TTL:     int64(rr.Header().Ttl),
+				RrClass: dnslib.ClassToString[rr.Header().Class],
+				RrType:  dnslib.TypeToString[rr.Header().Rrtype],
+				Data:    data,
+			})
+		}
+	}
+	// Return the zone contents.
+	payload := models.ZoneRRs{
+		Items: restRrs,
+	}
+	rsp := dns.NewGetZoneRRsOK().WithPayload(&payload)
+	return rsp
 }

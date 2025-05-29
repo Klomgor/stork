@@ -11,10 +11,10 @@ type CalculatedNetworkMetrics struct {
 	Label string
 	// IP family.
 	Family int
-	// Address utilization in percentage multiplied by 10.
-	AddrUtilization int16
-	// Delegated prefix utilization in percentage multiplied by 10.
-	PdUtilization int16
+	// Address utilization.
+	AddrUtilization Utilization
+	// Delegated prefix utilization.
+	PdUtilization Utilization
 	// Statistics. It is nil for subnets.
 	SharedNetworkStats SubnetStats
 }
