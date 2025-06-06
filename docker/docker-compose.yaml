@@ -35,6 +35,7 @@ services:
       STORK_SERVER_HOOK_LDAP_MAP_GROUPS: 1
       STORK_SERVER_HOOK_LDAP_GROUP_SUPER_ADMIN: stork-super-admins
       STORK_SERVER_HOOK_LDAP_GROUP_ADMIN: stork-admins
+      STORK_SERVER_HOOK_LDAP_GROUP_READ_ONLY: stork-read-only-users
     volumes:
       - ./docker/config/supervisor/supervisord.conf:/etc/supervisor/supervisord.conf
       - ./docker/config/supervisor/stork-server.conf:/etc/supervisor/conf.d/stork-server.conf
@@ -394,9 +395,11 @@ services:
       - "5302:53/tcp" # Expose DNS service to the host.
     volumes:
       - ./docker/config/agent-bind9-2/db.test:/etc/bind/db.test
+      - ./docker/config/agent-bind9-2/db.bind9.example.org.text:/etc/bind/db.bind9.example.org.text
       - ./docker/config/agent-bind9-2/named.conf:/etc/bind/named.conf
       - ./docker/config/supervisor/supervisord.conf:/etc/supervisor/supervisord.conf
       - ./docker/config/supervisor/named.conf:/etc/supervisor/conf.d/named.conf
+      - ./docker/config/supervisor/named-compilezone.conf:/etc/supervisor/conf.d/named-compilezone.conf
       - ./docker/config/supervisor/stork-agent.conf:/etc/supervisor/conf.d/stork-agent.conf
       - ./docker/config/supervisor/prometheus-alpine.conf:/etc/supervisor/conf.d/prometheus.conf
       - ./docker/config/supervisor/supervisor_monitor.conf:/etc/supervisor/conf.d/supervisor_monitor.conf

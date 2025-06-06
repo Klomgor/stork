@@ -306,10 +306,10 @@ type dispatcherImpl struct {
 	// Channel for passing ready review reports to the worker
 	// goroutine populating the reports into the database.
 	reviewDoneChan chan *ReviewContext
-	// Context used for cancelling the worker goroutine when the
+	// Context used for canceling the worker goroutine when the
 	// dispatcher is stopped.
 	dispatchCtx context.Context
-	// Function cancelling the worker goroutine.
+	// Function canceling the worker goroutine.
 	cancelDispatch context.CancelFunc
 	// A map holding information about currently scheduled reviews.
 	state map[int64]bool
@@ -924,7 +924,6 @@ func (d *dispatcherImpl) ReviewInProgress(daemonID int64) bool {
 // Registers default checkers in this package. When new checker is
 // implemented it should be included in this function.
 func RegisterDefaultCheckers(dispatcher Dispatcher) {
-	dispatcher.RegisterChecker(KeaDHCPDaemon, "stat_cmds_presence", GetDefaultTriggers(), statCmdsPresence)
 	dispatcher.RegisterChecker(KeaDHCPDaemon, "lease_cmds_presence", GetDefaultTriggers(), leaseCmdsPresence)
 	dispatcher.RegisterChecker(KeaDHCPDaemon, "host_cmds_presence", GetDefaultTriggers(), hostCmdsPresence)
 	dispatcher.RegisterChecker(KeaDHCPDaemon, "dispensable_shared_network", GetDefaultTriggers(), sharedNetworkDispensable)

@@ -2,6 +2,7 @@ package dbmodel
 
 import (
 	"net"
+	"strings"
 	"time"
 
 	errors "github.com/pkg/errors"
@@ -27,6 +28,10 @@ type AddressPool struct {
 	UpperBound    string
 	LocalSubnetID int64
 	LocalSubnet   *LocalSubnet `pg:"rel:has-one"`
+	Utilization   Utilization  `pg:",use_zero"`
+
+	Stats            SubnetStats
+	StatsCollectedAt time.Time
 
 	KeaParameters *keaconfig.PoolParameters
 }
@@ -54,11 +59,9 @@ func (ap *AddressPool) GetDHCPOptions() (accessors []dhcpmodel.DHCPOptionAccesso
 	return
 }
 
-// Checks equality of the address pool's own data without database-related members
-// and references.
-func (ap *AddressPool) HasEqualData(other *AddressPool) bool {
-	return ap.LowerBound == other.LowerBound &&
-		ap.UpperBound == other.UpperBound
+// Indicates if the pool is IPv6.
+func (ap *AddressPool) IsIPv6() bool {
+	return strings.Contains(ap.LowerBound, ":")
 }
 
 // Reflects IPv6 address pool.
@@ -72,6 +75,10 @@ type PrefixPool struct {
 	DHCPOptionSetHash string
 	LocalSubnetID     int64
 	LocalSubnet       *LocalSubnet `pg:"rel:has-one"`
+	Utilization       Utilization  `pg:",use_zero"`
+
+	Stats            SubnetStats
+	StatsCollectedAt time.Time
 
 	KeaParameters *keaconfig.PoolParameters
 }
@@ -96,14 +103,6 @@ func (pp *PrefixPool) GetDHCPOptions() (accessors []dhcpmodel.DHCPOptionAccessor
 		accessors = append(accessors, pp.DHCPOptionSet[i])
 	}
 	return
-}
-
-// Checks equality of the prefix pool's own data without database-related members
-// and references.
-func (pp *PrefixPool) HasEqualData(other *PrefixPool) bool {
-	return pp.Prefix == other.Prefix &&
-		pp.DelegatedLen == other.DelegatedLen &&
-		pp.ExcludedPrefix == other.ExcludedPrefix
 }
 
 // Creates a new address pool given the address range.
@@ -234,6 +233,67 @@ func DeletePrefixPool(db *dbops.PgDB, poolID int64) error {
 		err = errors.Wrapf(err, "problem deleting the prefix pool with ID %d", poolID)
 	} else if result.RowsAffected() <= 0 {
 		err = errors.Wrapf(ErrNotExists, "pool with ID %d does not exist", poolID)
+	}
+	return err
+}
+
+// Update stats pulled for given address pool.
+func (ap *AddressPool) UpdateStats(dbi dbops.DBI, stats SubnetStats) error {
+	var assigned *storkutil.BigCounter
+	var total *storkutil.BigCounter
+	var utilization Utilization
+	if ap.IsIPv6() {
+		assigned = stats.GetBigCounter(SubnetStatsNameAssignedNAs)
+		total = stats.GetBigCounter(SubnetStatsNameTotalNAs)
+	} else {
+		assigned = stats.GetBigCounter(SubnetStatsNameAssignedAddresses)
+		total = stats.GetBigCounter(SubnetStatsNameTotalAddresses)
+	}
+	if assigned != nil && total != nil {
+		utilization = Utilization(assigned.DivideSafeBy(total))
+	}
+
+	ap.Stats = stats
+	ap.StatsCollectedAt = storkutil.UTCNow()
+	ap.Utilization = utilization
+
+	q := dbi.Model(ap)
+	q = q.Column("stats", "stats_collected_at", "utilization")
+	q = q.WherePK()
+	result, err := q.Update()
+	if err != nil {
+		err = errors.Wrapf(err, "problem updating stats in address pool: [%s-%s]",
+			ap.LowerBound, ap.UpperBound)
+	} else if result.RowsAffected() <= 0 {
+		err = errors.Wrapf(ErrNotExists, "address pool: [%s-%s] does not exist",
+			ap.LowerBound, ap.UpperBound)
+	}
+	return err
+}
+
+// Update stats pulled for given prefix pool.
+func (pp *PrefixPool) UpdateStats(dbi dbops.DBI, stats SubnetStats) error {
+	assigned := stats.GetBigCounter(SubnetStatsNameAssignedPDs)
+	total := stats.GetBigCounter(SubnetStatsNameTotalPDs)
+	var utilization Utilization
+	if assigned != nil && total != nil {
+		utilization = Utilization(assigned.DivideSafeBy(total))
+	}
+
+	pp.Stats = stats
+	pp.StatsCollectedAt = storkutil.UTCNow()
+	pp.Utilization = utilization
+
+	q := dbi.Model(pp)
+	q = q.Column("stats", "stats_collected_at", "utilization")
+	q = q.WherePK()
+	result, err := q.Update()
+	if err != nil {
+		err = errors.Wrapf(err, "problem updating stats in prefix pool: [%s/%d]",
+			pp.Prefix, pp.DelegatedLen)
+	} else if result.RowsAffected() <= 0 {
+		err = errors.Wrapf(ErrNotExists, "prefix pool: [%s/%d] does not exist",
+			pp.Prefix, pp.DelegatedLen)
 	}
 	return err
 }

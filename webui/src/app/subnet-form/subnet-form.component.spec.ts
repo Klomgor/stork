@@ -17,7 +17,6 @@ import { TagModule } from 'primeng/tag'
 import { TriStateCheckboxModule } from 'primeng/tristatecheckbox'
 import { OverlayPanelModule } from 'primeng/overlaypanel'
 import { ProgressSpinnerModule } from 'primeng/progressspinner'
-import { RouterTestingModule } from '@angular/router/testing'
 import { SplitButtonModule } from 'primeng/splitbutton'
 import { ToastModule } from 'primeng/toast'
 import { MessageService } from 'primeng/api'
@@ -36,6 +35,7 @@ import { AddressPoolFormComponent } from '../address-pool-form/address-pool-form
 import { AccordionModule } from 'primeng/accordion'
 import { PrefixPoolFormComponent } from '../prefix-pool-form/prefix-pool-form.component'
 import { ArrayValueSetFormComponent } from '../array-value-set-form/array-value-set-form.component'
+import { provideRouter, RouterModule } from '@angular/router'
 
 describe('SubnetFormComponent', () => {
     let component: SubnetFormComponent
@@ -63,6 +63,7 @@ describe('SubnetFormComponent', () => {
                             pool: '192.0.2.10-192.0.2.100',
                             keaConfigPoolParameters: {
                                 clientClass: 'foo',
+                                clientClasses: ['foo', 'bar'],
                                 requireClientClasses: ['foo', 'bar'],
                                 evaluateAdditionalClasses: ['foo', 'bar'],
                                 options: [],
@@ -234,6 +235,7 @@ describe('SubnetFormComponent', () => {
                             pool: '2001:db8:1::10-2001:db8:1::100',
                             keaConfigPoolParameters: {
                                 clientClass: 'foo',
+                                clientClasses: ['foo', 'bar'],
                                 requireClientClasses: ['foo', 'bar'],
                                 evaluateAdditionalClasses: ['foo', 'bar'],
                                 options: [],
@@ -432,11 +434,11 @@ describe('SubnetFormComponent', () => {
                 OverlayPanelModule,
                 ProgressSpinnerModule,
                 ReactiveFormsModule,
-                RouterTestingModule,
+                RouterModule.forRoot([]),
                 SplitButtonModule,
                 ToastModule,
             ],
-            providers: [MessageService, provideHttpClient(withInterceptorsFromDi())],
+            providers: [MessageService, provideHttpClient(withInterceptorsFromDi()), provideRouter([])],
         }).compileComponents()
 
         fixture = TestBed.createComponent(SubnetFormComponent)
@@ -679,6 +681,7 @@ describe('SubnetFormComponent', () => {
                             pool: '192.0.2.10-192.0.2.100',
                             keaConfigPoolParameters: {
                                 clientClass: 'foo',
+                                clientClasses: ['foo', 'bar'],
                                 requireClientClasses: ['foo', 'bar'],
                                 evaluateAdditionalClasses: ['foo', 'bar'],
                                 options: [],
@@ -801,6 +804,7 @@ describe('SubnetFormComponent', () => {
                             pool: '2001:db8:1::10-2001:db8:1::100',
                             keaConfigPoolParameters: {
                                 clientClass: 'foo',
+                                clientClasses: ['foo', 'bar'],
                                 requireClientClasses: ['foo', 'bar'],
                                 evaluateAdditionalClasses: ['foo', 'bar'],
                                 options: [],
@@ -814,6 +818,7 @@ describe('SubnetFormComponent', () => {
                             excludedPrefix: null,
                             keaConfigPoolParameters: {
                                 clientClass: 'foo',
+                                clientClasses: [],
                                 requireClientClasses: [],
                                 evaluateAdditionalClasses: [],
                                 options: [],

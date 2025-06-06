@@ -1,12 +1,14 @@
 package dbmodel
 
 import (
+	"context"
 	"errors"
 	"time"
 
 	"github.com/go-pg/pg/v10"
 	"github.com/go-pg/pg/v10/orm"
 	pkgerrors "github.com/pkg/errors"
+	dbops "isc.org/stork/server/database"
 )
 
 // Part of machine table in database that describes state of machine. In DB it is stored as JSONB.
@@ -312,15 +314,49 @@ func GetUnauthorizedMachinesCount(db *pg.DB) (int, error) {
 	return count, pkgerrors.Wrapf(err, "problem counting unauthorized machines")
 }
 
-// Delete a machine from database.
+// Delete a machine from database. The machine must include non-nil Apps
+// field (though it may be an empty slice). The Apps field is used to
+// delete orphaned objects (e.g., subnets, zones) after the machine is deleted.
+// The whole operation is transactional, so it is rolled back if it fails at
+// any stage.
 func DeleteMachine(db *pg.DB, machine *Machine) error {
-	result, err := db.Model(machine).WherePK().Delete()
-	if err != nil {
-		return pkgerrors.Wrapf(err, "problem deleting machine %v", machine.ID)
-	} else if result.RowsAffected() <= 0 {
-		return pkgerrors.Wrapf(ErrNotExists, "machine with ID %d does not exist", machine.ID)
+	if machine.Apps == nil {
+		return pkgerrors.Errorf("deleted machine with ID %d has no apps relation", machine.ID)
 	}
-	return nil
+	return db.RunInTransaction(context.Background(), func(tx *pg.Tx) error {
+		result, err := db.Model(machine).WherePK().Delete()
+		if err != nil {
+			return pkgerrors.Wrapf(err, "problem deleting machine %v", machine.ID)
+		} else if result.RowsAffected() <= 0 {
+			return pkgerrors.Wrapf(ErrNotExists, "machine with ID %d does not exist", machine.ID)
+		}
+		// Deleting the machine may leave some orphaned objects behind.
+		// Let's make sure they are deleted.
+		appTypes := make(map[AppType]bool)
+		fns := []func(tx dbops.DBI) (int64, error){}
+		for _, app := range machine.Apps {
+			switch app.Type {
+			case AppTypeBind9:
+				appTypes[AppTypeBind9] = true
+			case AppTypeKea:
+				appTypes[AppTypeKea] = true
+			}
+		}
+		for appType := range appTypes {
+			if appType == AppTypeBind9 {
+				fns = append(fns, DeleteOrphanedZones)
+			}
+			if appType == AppTypeKea {
+				fns = append(fns, DeleteOrphanedSubnets, DeleteOrphanedHosts, DeleteOrphanedSharedNetworks)
+			}
+		}
+		for _, fn := range fns {
+			if _, err := fn(tx); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // MachineTag interface implementation.

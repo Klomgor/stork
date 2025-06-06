@@ -12,6 +12,8 @@
         styleClass="block p-button-primary no-underline"
         (onClick)="onAuthorizeSelectedMachinesClicked(selectedMachines)"
         id="authorize-selected-button"
+        appAccessEntity="machine-authorization"
+        appAccessType="update"
     ></p-button>
     <p-button
         label="Refresh List"
@@ -45,9 +47,17 @@
     (selectAllChange)="onSelectAllChange($event)"
 >
     <ng-template pTemplate="caption">
-        <p-panel [toggleable]="true">
+        <p-panel #filtersPanel [toggleable]="true" styleClass="p-panel-icons-hidden">
             <ng-template pTemplate="header">
                 <div class="flex align-items-center gap-2">
+                    <p-button
+                        type="button"
+                        [text]="true"
+                        [rounded]="true"
+                        [plain]="true"
+                        [icon]="!filtersPanel.collapsed ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+                        (click)="filtersPanel.toggle($event)"
+                    />
                     <i class="pi pi-filter"></i>
                     <span class="font-bold">Filters</span>
                     <p-tag
@@ -133,7 +143,10 @@
     <ng-template pTemplate="header">
         <tr>
             <th *ngIf="unauthorizedMachinesDisplayed()" class="w-4rem">
-                <p-tableHeaderCheckbox></p-tableHeaderCheckbox>
+                <p-tableHeaderCheckbox
+                    appAccessEntity="machine-authorization"
+                    appAccessType="update"
+                ></p-tableHeaderCheckbox>
             </th>
             <th class="w-8rem">Hostname</th>
             <th class="w-10rem">
@@ -196,7 +209,12 @@
     <ng-template pTemplate="body" let-m>
         <tr>
             <td *ngIf="unauthorizedMachinesDisplayed()">
-                <p-tableCheckbox [value]="m" [disabled]="m.authorized"></p-tableCheckbox>
+                <p-tableCheckbox
+                    [value]="m"
+                    [disabled]="m.authorized"
+                    appAccessEntity="machine-authorization"
+                    appAccessType="update"
+                ></p-tableCheckbox>
             </td>
             <td>
                 <a routerLink="/machines/{{ m.id }}">{{ m.hostname || m.address }}</a>

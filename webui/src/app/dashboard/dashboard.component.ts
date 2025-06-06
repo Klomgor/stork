@@ -1,9 +1,9 @@
-import { Component, OnDestroy, OnInit } from '@angular/core'
+import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core'
 
 import { MessageService } from 'primeng/api'
 
-import { DHCPService } from '../backend/api/api'
-import { AppsStats } from '../backend/model/appsStats'
+import { DHCPService, DNSService, ServicesService } from '../backend'
+import { AppsStats } from '../backend'
 import {
     datetimeToLocal,
     durationToString,
@@ -16,11 +16,20 @@ import {
 } from '../utils'
 import { SettingService } from '../setting.service'
 import { ServerDataService } from '../server-data.service'
-import { Subscription } from 'rxjs'
+import { concatMap, lastValueFrom, Subscription } from 'rxjs'
 import { map } from 'rxjs/operators'
 import { parseSubnetsStatisticValues } from '../subnets'
-import { DhcpDaemon, DhcpDaemonHARelationshipOverview, DhcpOverview, Settings } from '../backend'
+import {
+    App,
+    DhcpDaemon,
+    DhcpDaemonHARelationshipOverview,
+    DhcpOverview,
+    Settings,
+    ZoneInventoryState,
+} from '../backend'
 import { ModifyDeep } from '../utiltypes'
+import { TableLazyLoadEvent } from 'primeng/table'
+import { getSeverity, getTooltip } from '../zone-inventory-utils'
 
 type DhcpOverviewParsed = ModifyDeep<
     DhcpOverview,
@@ -117,11 +126,39 @@ export class DashboardComponent implements OnInit, OnDestroy {
     grafanaDhcp6DashboardId: string
 
     /**
+     * List of DNS Apps displayed in the DNS dashboard.
+     */
+    dnsApps: App[] = []
+
+    /**
+     * Total count of DNS Apps returned by the backend.
+     */
+    dnsAppsTotalCount: number = 0
+
+    /**
+     * Flag stating whether DNS Service Status table data is loading or not.
+     */
+    dnsServiceStatusLoading: boolean = false
+
+    /**
+     * Key-value map where keys are DNS app IDs and values are information about zone fetching for particular DNS server.
+     */
+    zoneInventoryStateMap: Map<number, ZoneInventoryState> = new Map()
+
+    /**
      * Returns true when no kea and no bind9 apps exist among authorized machines;
      * false otherwise.
      */
     get noApps(): boolean {
         return this.appsStats.keaAppsTotal === 0 && this.appsStats.bind9AppsTotal === 0
+    }
+
+    /**
+     * Returns true when both DHCP and DNS apps exist among authorized machines;
+     * false otherwise.
+     */
+    get bothDHCPAndDNSAppsExist(): boolean {
+        return this.appsStats.keaAppsTotal > 0 && this.appsStats.bind9AppsTotal > 0
     }
 
     /**
@@ -153,7 +190,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
         private serverData: ServerDataService,
         private dhcpApi: DHCPService,
         private msgSrv: MessageService,
-        private settingSvc: SettingService
+        private settingSvc: SettingService,
+        private servicesApi: ServicesService,
+        private cd: ChangeDetectorRef,
+        private dnsApi: DNSService
     ) {}
 
     ngOnDestroy(): void {
@@ -272,6 +312,42 @@ export class DashboardComponent implements OnInit, OnDestroy {
                     life: 10000,
                 })
             })
+    }
+
+    /**
+     * Get or refresh DNS overview data from the server
+     * @param event PrimeNG TableLazyLoadEvent with metadata about table pagination.
+     */
+    refreshDnsOverview(event: TableLazyLoadEvent) {
+        this.dnsServiceStatusLoading = true
+        this.cd.detectChanges()
+        lastValueFrom(
+            this.dnsApi.getZonesFetch().pipe(
+                concatMap((zonesFetch) => {
+                    if (zonesFetch?.items?.length > 0) {
+                        this.zoneInventoryStateMap = new Map()
+                        zonesFetch.items.forEach((s) => {
+                            this.zoneInventoryStateMap.set(s.appId, s)
+                        })
+                    }
+                    return this.servicesApi.getApps(event?.first ?? 0, event?.rows ?? 5, null, 'bind9')
+                })
+            )
+        )
+            .then((data) => {
+                this.dnsApps = data.items ?? []
+                this.dnsAppsTotalCount = data.total ?? 0
+            })
+            .catch((err) => {
+                const msg = getErrorMessage(err)
+                this.msgSrv.add({
+                    severity: 'error',
+                    summary: 'Cannot get DNS overview',
+                    detail: 'Error getting DNS overview: ' + msg,
+                    life: 10000,
+                })
+            })
+            .finally(() => (this.dnsServiceStatusLoading = false))
     }
 
     /**
@@ -508,5 +584,65 @@ export class DashboardComponent implements OnInit, OnDestroy {
             return 'never'
         }
         return localTime
+    }
+
+    /**
+     * Reference to getTooltip() function to be used in html template.
+     * @protected
+     */
+    protected readonly getTooltip = getTooltip
+
+    /**
+     * Reference to getSeverity() function to be used in html template.
+     * @protected
+     */
+    protected readonly getSeverity = getSeverity
+
+    /**
+     * Browser storage key for storing dns-dashboard-hidden state.
+     * @private
+     */
+    private readonly _dnsDashboardHiddenStorageKey = 'dns-dashboard-hidden'
+
+    /**
+     * Browser storage key for storing dhcp-dashboard-hidden state.
+     * @private
+     */
+    private readonly _dhcpDashboardHiddenStorageKey = 'dhcp-dashboard-hidden'
+
+    /**
+     * Returns true when DNS dashboard was hidden or false otherwise. The state is read from browser storage.
+     */
+    isDNSDashboardHidden(): boolean {
+        const hidden =
+            localStorage.getItem(this._dnsDashboardHiddenStorageKey) ??
+            (this.bothDHCPAndDNSAppsExist ? 'true' : 'false')
+        return hidden === 'true'
+    }
+
+    /**
+     * Stores in browser storage whether the DNS dashboard should remain hidden or not.
+     * @param hidden
+     */
+    storeDNSDashboardHidden(hidden: boolean): void {
+        localStorage.setItem(this._dnsDashboardHiddenStorageKey, JSON.stringify(hidden))
+    }
+
+    /**
+     * Returns true when DHCP dashboard was hidden or false otherwise. The state is read from browser storage.
+     */
+    isDHCPDashboardHidden(): boolean {
+        const hidden =
+            localStorage.getItem(this._dhcpDashboardHiddenStorageKey) ??
+            (this.bothDHCPAndDNSAppsExist ? 'true' : 'false')
+        return hidden === 'true'
+    }
+
+    /**
+     * Stores in browser storage whether the DHCP dashboard should remain hidden or not.
+     * @param hidden
+     */
+    storeDHCPDashboardHidden(hidden: boolean): void {
+        localStorage.setItem(this._dhcpDashboardHiddenStorageKey, JSON.stringify(hidden))
     }
 }

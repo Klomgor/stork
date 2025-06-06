@@ -24,3 +24,21 @@
   .p-datatable .p-datatable-header:has(.p-panel)
     padding-left: 0
     padding-right: 0
+
+  // Ensure the width of the zone viewer dialog when the data is loading.
+  .p-dialog
+    width: 75vw
+
+  // Compensate left padding for p-tag marking zone serial mismatch.
+  .serial-mismatch
+    margin-left: -0.4rem
+
+    // Change the order inside p-tag so that the icon will be visible after the serial.
+    // And add little margin to the icon.
+    .p-tag-icon
+      order: 1
+      margin-left: 0.25rem
+
+  // As we have custom toggle show/hide panel button on the left side of the panel, hide the default PrimeNG toggle button.
+  .p-panel-icons-hidden .p-panel-icons
+    display: none

@@ -133,7 +133,14 @@ func TestGetSubnets(t *testing.T) {
                         {
                             "pool": "3001:db8:1::/80"
                         }
-                    ]
+                    ],
+					"pd-pools": [
+						{
+							"prefix": "3001:db8:1:1::",
+							"prefix-len": 80,
+							"delegated-len": 96
+						}
+					]
                 }
             ],
             "shared-networks": [
@@ -175,9 +182,14 @@ func TestGetSubnets(t *testing.T) {
 		"baz": 4224,
 	}
 	subnets[0].StatsCollectedAt = time.Time{}.Add(3 * time.Hour)
-	subnets[0].AddrUtilization = 240
-	subnets[0].PdUtilization = 420
-	dbmodel.CommitNetworksIntoDB(db, []dbmodel.SharedNetwork{}, subnets)
+	subnets[0].AddrUtilization = 0.24
+	subnets[0].PdUtilization = 0.42
+	subnets[0].LocalSubnets[0].AddressPools[0].ID = 0
+	subnets[0].LocalSubnets[0].AddressPools[0].Utilization = 0.24
+	subnets[0].LocalSubnets[0].PrefixPools[0].ID = 0
+	subnets[0].LocalSubnets[0].PrefixPools[0].Utilization = 0.42
+	_, err = dbmodel.CommitNetworksIntoDB(db, []dbmodel.SharedNetwork{}, subnets)
+	require.NoError(t, err)
 
 	// get all subnets
 	params = dhcp.GetSubnetsParams{}
@@ -272,6 +284,8 @@ func TestGetSubnets(t *testing.T) {
 	require.EqualValues(t, time.Time{}.Add(3*time.Hour), *okRsp.Payload.Items[2].StatsCollectedAt)
 	require.EqualValues(t, 24, okRsp.Payload.Items[2].AddrUtilization)
 	require.EqualValues(t, 42, okRsp.Payload.Items[2].PdUtilization)
+	require.EqualValues(t, 24, okRsp.Payload.Items[2].LocalSubnets[0].Pools[0].Utilization)
+	require.EqualValues(t, 42, okRsp.Payload.Items[2].LocalSubnets[0].PrefixDelegationPools[0].Utilization)
 
 	// get subnets by text '118.0.0/2'
 	text := "118.0.0/2"
@@ -376,8 +390,7 @@ func TestGetSubnet4(t *testing.T) {
 	require.Len(t, ls.Pools[0].KeaConfigPoolParameters.DHCPOptions.Options[0].Fields[0].Values, 1)
 	require.Equal(t, "192.0.3.10", ls.Pools[0].KeaConfigPoolParameters.DHCPOptions.Options[0].Fields[0].Values[0])
 	require.EqualValues(t, storkutil.IPv4, ls.Pools[0].KeaConfigPoolParameters.DHCPOptions.Options[0].Universe)
-	require.NotNil(t, ls.Pools[0].KeaConfigPoolParameters.PoolID)
-	require.EqualValues(t, 7, *ls.Pools[0].KeaConfigPoolParameters.PoolID)
+	require.EqualValues(t, 7, ls.Pools[0].KeaConfigPoolParameters.PoolID)
 
 	require.NotNil(t, ls.Pools[1].Pool)
 	require.Equal(t, "192.3.0.1-192.3.0.200", *ls.Pools[1].Pool)
@@ -876,8 +889,7 @@ func TestGetSubnet6(t *testing.T) {
 	poolParams := ls.PrefixDelegationPools[0].KeaConfigPoolParameters
 	require.Equal(t, "phones_server1", *poolParams.ClientClass)
 	require.Len(t, poolParams.RequireClientClasses, 1)
-	require.NotNil(t, poolParams.PoolID)
-	require.EqualValues(t, 2, *poolParams.PoolID)
+	require.EqualValues(t, 2, poolParams.PoolID)
 
 	// DHCP options in a prefix pool.
 	require.Len(t, poolParams.DHCPOptions.Options, 1)
@@ -2131,6 +2143,7 @@ func TestUpdateSubnet4BeginSubmit(t *testing.T) {
 			},
 			KeaConfigClientClassParameters: models.KeaConfigClientClassParameters{
 				ClientClass:               storkutil.Ptr("foo"),
+				ClientClasses:             []string{"foo"},
 				EvaluateAdditionalClasses: []string{"foo"},
 				RequireClientClasses:      []string{"bar"},
 			},
@@ -2221,10 +2234,11 @@ func TestUpdateSubnet4BeginSubmit(t *testing.T) {
 							Pool: storkutil.Ptr("192.0.2.10-192.0.2.20"),
 							KeaConfigPoolParameters: &models.KeaConfigPoolParameters{
 								KeaConfigAssortedPoolParameters: models.KeaConfigAssortedPoolParameters{
-									PoolID: storkutil.Ptr(int64(1234)),
+									PoolID: 1234,
 								},
 								KeaConfigClientClassParameters: models.KeaConfigClientClassParameters{
 									ClientClass:               storkutil.Ptr("foo"),
+									ClientClasses:             []string{"foo", "bar"},
 									EvaluateAdditionalClasses: []string{"foo", "bar"},
 									RequireClientClasses:      []string{"foo", "bar"},
 								},
@@ -2260,10 +2274,11 @@ func TestUpdateSubnet4BeginSubmit(t *testing.T) {
 							Pool: storkutil.Ptr("192.0.2.10-192.0.2.20"),
 							KeaConfigPoolParameters: &models.KeaConfigPoolParameters{
 								KeaConfigAssortedPoolParameters: models.KeaConfigAssortedPoolParameters{
-									PoolID: storkutil.Ptr(int64(1234)),
+									PoolID: 1234,
 								},
 								KeaConfigClientClassParameters: models.KeaConfigClientClassParameters{
 									ClientClass:               storkutil.Ptr("foo"),
+									ClientClasses:             []string{"foo", "bar"},
 									EvaluateAdditionalClasses: []string{"foo", "bar"},
 									RequireClientClasses:      []string{"foo", "bar"},
 								},
@@ -2317,6 +2332,7 @@ func TestUpdateSubnet4BeginSubmit(t *testing.T) {
 									"pool": "192.0.2.10-192.0.2.20",
 									"pool-id": 1234,
 									"client-class": "foo",
+									"client-classes": [ "foo", "bar" ],
 									"evaluate-additional-classes": [ "foo", "bar" ],
 									"require-client-classes": [ "foo", "bar" ],
 									"option-data": [
@@ -2340,6 +2356,7 @@ func TestUpdateSubnet4BeginSubmit(t *testing.T) {
 							"cache-max-age": 1000,
 							"cache-threshold": 0.25,
 							"client-class": "foo",
+							"client-classes": [ "foo" ],
 							"require-client-classes": [ "bar" ],
 							"evaluate-additional-classes": [ "foo" ],
 							"ddns-generated-prefix": "abc",
@@ -2439,6 +2456,8 @@ func TestUpdateSubnet4BeginSubmit(t *testing.T) {
 		require.EqualValues(t, 0.25, *ls.KeaParameters.CacheThreshold)
 		require.NotNil(t, ls.KeaParameters.ClientClass)
 		require.Equal(t, "foo", *ls.KeaParameters.ClientClass)
+		require.Len(t, ls.KeaParameters.ClientClasses, 1)
+		require.EqualValues(t, "foo", ls.KeaParameters.ClientClasses[0])
 		require.Len(t, ls.KeaParameters.EvaluateAdditionalClasses, 1)
 		require.EqualValues(t, "foo", ls.KeaParameters.EvaluateAdditionalClasses[0])
 		require.Len(t, ls.KeaParameters.RequireClientClasses, 1)
@@ -3269,10 +3288,11 @@ func TestUpdateSubnet6BeginSubmit(t *testing.T) {
 							ExcludedPrefix:  "2001:db8:1:2::/80",
 							KeaConfigPoolParameters: &models.KeaConfigPoolParameters{
 								KeaConfigAssortedPoolParameters: models.KeaConfigAssortedPoolParameters{
-									PoolID: storkutil.Ptr(int64(2345)),
+									PoolID: 2345,
 								},
 								KeaConfigClientClassParameters: models.KeaConfigClientClassParameters{
 									ClientClass:               storkutil.Ptr("foo"),
+									ClientClasses:             []string{"foo", "bar"},
 									EvaluateAdditionalClasses: []string{"foo", "bar"},
 									RequireClientClasses:      []string{"foo", "bar"},
 								},
@@ -3310,10 +3330,11 @@ func TestUpdateSubnet6BeginSubmit(t *testing.T) {
 							ExcludedPrefix:  "2001:db8:1:2::/80",
 							KeaConfigPoolParameters: &models.KeaConfigPoolParameters{
 								KeaConfigAssortedPoolParameters: models.KeaConfigAssortedPoolParameters{
-									PoolID: storkutil.Ptr(int64(2345)),
+									PoolID: 2345,
 								},
 								KeaConfigClientClassParameters: models.KeaConfigClientClassParameters{
 									ClientClass:               storkutil.Ptr("foo"),
+									ClientClasses:             []string{"foo", "bar"},
 									EvaluateAdditionalClasses: []string{"foo", "bar"},
 									RequireClientClasses:      []string{"foo", "bar"},
 								},
@@ -3376,6 +3397,7 @@ func TestUpdateSubnet6BeginSubmit(t *testing.T) {
 									"excluded-prefix": "2001:db8:1:2::",
 									"excluded-prefix-len": 80,
 									"client-class": "foo",
+									"client-classes": [ "foo", "bar" ],
 									"evaluate-additional-classes": [ "foo", "bar" ],
 									"require-client-classes": [ "foo", "bar" ],
 									"pool-id": 2345,

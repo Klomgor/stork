@@ -2,7 +2,6 @@ import { ComponentFixture, TestBed } from '@angular/core/testing'
 import { By } from '@angular/platform-browser'
 import { FormsModule } from '@angular/forms'
 import { NoopAnimationsModule } from '@angular/platform-browser/animations'
-import { RouterTestingModule } from '@angular/router/testing'
 import { PanelModule } from 'primeng/panel'
 import { AppOverviewComponent } from './app-overview.component'
 import { ButtonModule } from 'primeng/button'
@@ -12,6 +11,8 @@ import { MessageService } from 'primeng/api'
 import { App } from '../backend'
 import { AccessPointKeyComponent } from '../access-point-key/access-point-key.component'
 import { provideHttpClient, withInterceptorsFromDi } from '@angular/common/http'
+import { ManagedAccessDirective } from '../managed-access.directive'
+import { provideRouter, RouterModule } from '@angular/router'
 
 describe('AppOverviewComponent', () => {
     let component: AppOverviewComponent
@@ -21,17 +22,26 @@ describe('AppOverviewComponent', () => {
     beforeEach(async () => {
         await TestBed.configureTestingModule({
             declarations: [AppOverviewComponent, AccessPointKeyComponent],
-            imports: [FormsModule, NoopAnimationsModule, RouterTestingModule, PanelModule, ButtonModule],
+            imports: [
+                FormsModule,
+                NoopAnimationsModule,
+                RouterModule,
+                PanelModule,
+                ButtonModule,
+                ManagedAccessDirective,
+            ],
             providers: [
                 MessageService,
                 {
                     provide: AuthService,
                     useValue: {
                         superAdmin: () => true,
+                        hasPrivilege: () => true,
                     },
                 },
                 provideHttpClient(withInterceptorsFromDi()),
                 provideHttpClientTesting(),
+                provideRouter([]),
             ],
         }).compileComponents()
         authService = TestBed.inject(AuthService)
@@ -119,18 +129,36 @@ describe('AppOverviewComponent', () => {
     })
 
     it('should hide keys for non-super-admin users', () => {
-        component.app = { type: 'bind9' }
+        spyOn(authService, 'hasPrivilege').and.returnValue(false)
         spyOn(authService, 'superAdmin').and.returnValue(false)
-        expect(component.canShowKeys).toBeFalse()
+        fixture.componentRef.setInput('app', {
+            type: 'bind9',
+            machine: { id: 1, address: '192.0.2.1:8080' },
+            accessPoints: [{ address: '192.0.2.1', port: 8080, useSecureProtocol: true, type: 'control' }],
+            id: 1,
+        })
+        fixture.detectChanges()
+        expect(authService.hasPrivilege).toHaveBeenCalled()
+        const spanDE = fixture.debugElement.query(By.css('span#access-point-key'))
+        expect(spanDE).toBeTruthy()
+        expect(spanDE.nativeElement.innerText).toBe('')
     })
 
     it('should hide keys for non-BIND9 application', () => {
         component.app = { type: 'kea' }
-        expect(component.canShowKeys).toBeFalse()
+        expect(fixture.debugElement.query(By.directive(AccessPointKeyComponent))).toBeFalsy()
     })
 
     it('should show keys for BIND9 application and super-admin user', () => {
-        component.app = { type: 'bind9' }
-        expect(component.canShowKeys).toBeTrue()
+        spyOn(authService, 'hasPrivilege').and.returnValue(true)
+        fixture.componentRef.setInput('app', {
+            type: 'bind9',
+            machine: { id: 1, address: '192.0.2.1:8080' },
+            accessPoints: [{ address: '192.0.2.1', port: 8080, useSecureProtocol: true, type: 'control' }],
+            id: 1,
+        })
+        fixture.detectChanges()
+        expect(authService.hasPrivilege).toHaveBeenCalled()
+        expect(fixture.debugElement.query(By.directive(AccessPointKeyComponent))).toBeTruthy()
     })
 })

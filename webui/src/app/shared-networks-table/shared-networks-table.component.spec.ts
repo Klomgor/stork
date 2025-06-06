@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing'
+import { ComponentFixture, fakeAsync, flush, TestBed, tick } from '@angular/core/testing'
 
 import { SharedNetworksTableComponent } from './shared-networks-table.component'
 import { MessageService } from 'primeng/api'
@@ -8,7 +8,7 @@ import { TableModule } from 'primeng/table'
 import { provideHttpClientTesting } from '@angular/common/http/testing'
 import { ButtonModule } from 'primeng/button'
 import { OverlayPanelModule } from 'primeng/overlaypanel'
-import { InputNumberModule } from 'primeng/inputnumber'
+import { InputNumber, InputNumberModule } from 'primeng/inputnumber'
 import { FormsModule } from '@angular/forms'
 import { PanelModule } from 'primeng/panel'
 import { BrowserAnimationsModule } from '@angular/platform-browser/animations'
@@ -26,6 +26,8 @@ import { HumanCountPipe } from '../pipes/human-count.pipe'
 import { LocalNumberPipe } from '../pipes/local-number.pipe'
 import { By } from '@angular/platform-browser'
 import { provideHttpClient, withInterceptorsFromDi } from '@angular/common/http'
+import { ManagedAccessDirective } from '../managed-access.directive'
+import { UtilizationBarComponent } from '../utilization-bar/utilization-bar.component'
 
 describe('SharedNetworksTableComponent', () => {
     let component: SharedNetworksTableComponent
@@ -44,6 +46,7 @@ describe('SharedNetworksTableComponent', () => {
                 SubnetBarComponent,
                 HumanCountPipe,
                 LocalNumberPipe,
+                UtilizationBarComponent,
             ],
             imports: [
                 TableModule,
@@ -67,6 +70,7 @@ describe('SharedNetworksTableComponent', () => {
                     },
                 ]),
                 TooltipModule,
+                ManagedAccessDirective,
             ],
             providers: [MessageService, provideHttpClient(withInterceptorsFromDi()), provideHttpClientTesting()],
         }).compileComponents()
@@ -279,6 +283,7 @@ describe('SharedNetworksTableComponent', () => {
         // Prepare responses for table filtering tests.
         getNetworksSpy.withArgs(0, 10, 5, null, 'cat').and.returnValue(of(fakeResponses[2]))
         getNetworksSpy.withArgs(0, 10, 5, 6, 'cat').and.returnValue(of(fakeResponses[2]))
+        getNetworksSpy.withArgs(0, 10, 1, null, null).and.returnValue(of(fakeResponses[2]))
 
         fixture.detectChanges()
 
@@ -387,26 +392,18 @@ describe('SharedNetworksTableComponent', () => {
 
             switch (i) {
                 case 0:
-                    expect(bar.hasZeroAddressStats).toBeFalse()
-                    expect(bar.hasZeroDelegatedPrefixStats).toBeFalse()
                     expect(bar.addrUtilization).toBe(10)
                     expect(bar.pdUtilization).toBe(15)
                     break
                 case 1:
-                    expect(bar.hasZeroAddressStats).toBeFalse()
-                    expect(bar.hasZeroDelegatedPrefixStats).toBeTrue()
                     expect(bar.addrUtilization).toBe(20)
                     expect(bar.pdUtilization).toBe(0)
                     break
                 case 2:
-                    expect(bar.hasZeroAddressStats).toBeTrue()
-                    expect(bar.hasZeroDelegatedPrefixStats).toBeFalse()
                     expect(bar.addrUtilization).toBe(0)
                     expect(bar.pdUtilization).toBe(35)
                     break
                 case 3:
-                    expect(bar.hasZeroAddressStats).toBeTrue()
-                    expect(bar.hasZeroDelegatedPrefixStats).toBeTrue()
                     expect(bar.addrUtilization).toBe(0)
                     expect(bar.pdUtilization).toBe(0)
                     break
@@ -428,9 +425,9 @@ describe('SharedNetworksTableComponent', () => {
         expect(errors[1].nativeElement.innerText).toBe('Filter dhcpVersion allows only values: 4, 6.')
     })
 
-    it('should filter table records', async () => {
+    it('should filter table records', fakeAsync(() => {
         // Initial data was loaded.
-        await fixture.whenStable()
+        tick()
         fixture.detectChanges()
         expect(getNetworksSpy).toHaveBeenCalledWith(0, 10, null, null, null)
 
@@ -440,46 +437,58 @@ describe('SharedNetworksTableComponent', () => {
 
         // First is filter by appId, second is text search filter.
         expect(filterInputs.length).toBe(2)
-        let input = filterInputs[1].nativeElement
+        const input = filterInputs[1].nativeElement
 
         // Filter by text.
         input.value = 'cat'
         input.dispatchEvent(new Event('input'))
 
         // Verify that the API was called for that filter.
-        await fixture.whenStable()
+        tick(300)
         fixture.detectChanges()
         expect(getNetworksSpy).toHaveBeenCalledWith(0, 10, null, null, 'cat')
 
         // Filter by kea app id.
-        const pressFiveEvent = new KeyboardEvent('event', {
-            code: 'Digit5',
-            key: '5',
-            keyCode: '5'.charCodeAt(0),
-        })
         const inputNumberEls = fixture.debugElement.queryAll(By.css('.p-column-filter p-inputnumber'))
         expect(inputNumberEls).toBeTruthy()
         expect(inputNumberEls.length).toBe(1)
-        let inputComponent = inputNumberEls[0].componentInstance
-        inputComponent.onInputKeyPress(pressFiveEvent)
+        const inputComponent = inputNumberEls[0].componentInstance
+        inputComponent.handleOnInput(new InputEvent('input'), '', 5)
 
         // Verify that the API was called for that filter.
-        await fixture.whenStable()
+        tick(300)
         fixture.detectChanges()
         expect(getNetworksSpy).toHaveBeenCalledWith(0, 10, 5, null, 'cat')
 
         // Filter by DHCP version.
         const dropdownContainer = fixture.debugElement.query(By.css('.p-column-filter .p-dropdown')).nativeElement
         dropdownContainer.click()
-        await fixture.whenStable()
+        tick()
         fixture.detectChanges()
         const items = fixture.debugElement.query(By.css('.p-dropdown-items'))
         // Click second option.
         items.children[1].children[0].nativeElement.click()
 
         // Verify that the API was called for that filter.
-        await fixture.whenStable()
+        tick(300)
         fixture.detectChanges()
         expect(getNetworksSpy).toHaveBeenCalledWith(0, 10, 5, 6, 'cat')
-    })
+    }))
+
+    it('should not filter the table by numeric input with value zero', fakeAsync(() => {
+        // Arrange
+        const inputNumber = fixture.debugElement.query(By.directive(InputNumber))
+        expect(inputNumber).toBeTruthy()
+
+        // Act
+        inputNumber.componentInstance.handleOnInput(new InputEvent('input'), '', 0) // appId
+        tick(300)
+        fixture.detectChanges()
+
+        // Assert
+        expect(getNetworksSpy).toHaveBeenCalledTimes(2)
+        // Since zero is forbidden filter value for numeric inputs, we expect that minimum allowed value (i.e. 1) will be used.
+        expect(getNetworksSpy).toHaveBeenCalledWith(0, 10, 1, null, null)
+        flush()
+    }))
 })

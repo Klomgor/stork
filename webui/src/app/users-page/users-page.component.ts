@@ -8,7 +8,7 @@ import { ServerDataService } from '../server-data.service'
 import { UsersService } from '../backend/api/api'
 import { lastValueFrom, Subscription } from 'rxjs'
 import { getErrorMessage } from '../utils'
-import { User } from '../backend'
+import { Group, User } from '../backend'
 
 /**
  * An enum specifying tab types in the user view
@@ -135,7 +135,7 @@ export class UsersPageComponent implements OnInit, OnDestroy {
     passwordPattern: RegExp = /^[a-zA-Z0-9~`!@#$%^&*()_+\-=\[\]\\{}|;':",.\/<>?\s]+$/
 
     // ToDo: Strict typing
-    private groups: any[] = []
+    private groups: Group[] = []
     // users table
     users: any[]
     totalUsers: number
@@ -400,7 +400,7 @@ export class UsersPageComponent implements OnInit, OnDestroy {
                     severity: 'error',
                     summary: 'Loading user accounts failed',
                     detail: 'Failed to load user accounts from the database: ' + msg,
-                    sticky: true,
+                    life: 10000,
                 })
             })
     }
@@ -458,6 +458,16 @@ export class UsersPageComponent implements OnInit, OnDestroy {
                     // Deal with the case when specific user is selected or when the
                     // new user is to be created.
                     const userId = userIdStr === 'new' ? 0 : parseInt(userIdStr, 10)
+                    if (Number.isNaN(userId)) {
+                        // Given path parameter can't be parsed as number. Show list of users.
+                        this.msgSrv.add({
+                            severity: 'error',
+                            summary: 'Failed to parse user ID',
+                            detail: 'Failed to parse user ID from given: ' + userIdStr,
+                        })
+                        this.switchToTab(0)
+                        return
+                    }
 
                     // Iterate over opened tabs and check if any of them matches the
                     // given user id or is for new user.
@@ -540,7 +550,7 @@ export class UsersPageComponent implements OnInit, OnDestroy {
                     severity: 'error',
                     summary: 'Failed to create new user account',
                     detail: 'Failed to create new user account: ' + msg,
-                    sticky: true,
+                    life: 10000,
                 })
             })
     }
@@ -578,7 +588,7 @@ export class UsersPageComponent implements OnInit, OnDestroy {
                     severity: 'error',
                     summary: 'Failed to update user account',
                     detail: 'Failed to update user account: ' + msg,
-                    sticky: true,
+                    life: 10000,
                 })
             })
     }
@@ -619,7 +629,7 @@ export class UsersPageComponent implements OnInit, OnDestroy {
                     severity: 'error',
                     summary: 'Failed to delete user account',
                     detail: 'Failed to delete user account: ' + msg,
-                    sticky: true,
+                    life: 10000,
                 })
             })
     }
@@ -729,5 +739,13 @@ export class UsersPageComponent implements OnInit, OnDestroy {
             }
         }
         return 'unknown'
+    }
+
+    /**
+     * Returns group description for given group ID.
+     * @param groupId numeric group ID
+     */
+    public getGroupDescription(groupId: number): string {
+        return this.groups.find((group) => group.id === groupId)?.description
     }
 }

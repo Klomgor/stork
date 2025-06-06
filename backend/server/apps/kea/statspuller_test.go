@@ -14,53 +14,30 @@ import (
 	agentcommtest "isc.org/stork/server/agentcomm/test"
 	dbmodel "isc.org/stork/server/database/model"
 	dbtest "isc.org/stork/server/database/test"
-	storkutil "isc.org/stork/util"
 )
 
 // Prepares the Kea mock. It accepts list of serialized JSON responses in order:
-// 1. DHCPv4
-// 2. DHCPv4 RSP
-// 3. DHCPv6
-// 4. DHCPv6 RSP.
-func createKeaMock(jsonFactory func(callNo int) (jsons []string)) func(callNo int, cmdResponses []interface{}) {
+// 1. Statistic-get-all DHCPv4
+// 3. Statistic-get-all DHCPv6.
+func createKeaMock(t *testing.T, jsonFactory func(callNo int) (jsons []string)) func(callNo int, cmdResponses []interface{}) {
 	return func(callNo int, cmdResponses []interface{}) {
 		jsons := jsonFactory(callNo)
 		// DHCPv4
 		daemons := []keactrl.DaemonName{keactrl.DHCPv4}
-		command := keactrl.NewCommandBase(keactrl.StatLease4Get, daemons...)
-		keactrl.UnmarshalResponseList(command, []byte(jsons[0]), cmdResponses[0])
+		command := keactrl.NewCommandBase(keactrl.StatisticGetAll, daemons...)
+		err := keactrl.UnmarshalResponseList(command, []byte(jsons[0]), cmdResponses[0])
+		require.NoError(t, err)
 
-		// DHCPv4 RSP response
-		rpsCmd := []*keactrl.Command{}
-		_ = RpsAddCmd4(&rpsCmd, daemons)
-		keactrl.UnmarshalResponseList(rpsCmd[0], []byte(jsons[1]), cmdResponses[1])
-
-		if len(cmdResponses) < 4 {
+		if len(cmdResponses) < 2 {
 			return
 		}
 
 		// DHCPv6
 		daemons = []keactrl.DaemonName{keactrl.DHCPv6}
-		command = keactrl.NewCommandBase(keactrl.StatLease6Get, daemons...)
-		keactrl.UnmarshalResponseList(command, []byte(jsons[2]), cmdResponses[2])
-
-		// DHCPv6 RSP response
-		rpsCmd = []*keactrl.Command{}
-		_ = RpsAddCmd6(&rpsCmd, daemons)
-		keactrl.UnmarshalResponseList(rpsCmd[0], []byte(jsons[3]), cmdResponses[3])
+		command = keactrl.NewCommandBase(keactrl.StatisticGetAll, daemons...)
+		err = keactrl.UnmarshalResponseList(command, []byte(jsons[1]), cmdResponses[1])
+		require.NoError(t, err)
 	}
-}
-
-// Converts the list of int64s to list of the JSON-serializable big integers.
-func convertInt64SeriesToBigInts(series [][]int64) (result [][]storkutil.BigIntJSON) {
-	result = make([][]storkutil.BigIntJSON, len(series))
-	for i, row := range series {
-		result[i] = make([]storkutil.BigIntJSON, len(row))
-		for j, item := range row {
-			result[i][j] = storkutil.NewBigIntJSONFromInt64(item)
-		}
-	}
-	return
 }
 
 // Prepares the Kea mock with the statistic values compatible with the
@@ -69,90 +46,74 @@ func convertInt64SeriesToBigInts(series [][]int64) (result [][]storkutil.BigIntJ
 // applications with a single DHCPv4 daemon.
 // Accepts a parameter that indicates if the old names of the statistics should
 // be used (missing doubled "s" in "addresses" word).
-func createStandardKeaMock(oldStatsFormat bool) func(callNo int, cmdResponses []interface{}) {
-	statLeaseGetResponseDHCPv4Columns := []string{"subnet-id", "total-addresses", "assigned-addresses", "declined-addresses"}
+func createStandardKeaMock(t *testing.T, oldStatsFormat bool) func(callNo int, cmdResponses []any) {
+	statistic4Names := []string{"total-addresses", "assigned-addresses", "declined-addresses"}
 	if oldStatsFormat {
-		statLeaseGetResponseDHCPv4Columns = []string{"subnet-id", "total-addreses", "assigned-addreses", "declined-addreses"}
+		statistic4Names = []string{"total-addreses", "assigned-addreses", "declined-addreses"}
 	}
 
-	return createKeaMock(func(callNo int) []string {
+	return createKeaMock(t, func(callNo int) (jsons []string) {
 		shift := int64(callNo * 100)
 		totalShift := shift * 2
-		data := []interface{}{
-			[]StatLeaseGetResponse{
-				{
-					ResponseHeader: keactrl.ResponseHeader{
-						Result: 0,
-						Text:   "Everything is fine",
-					},
-					Arguments: &StatLeaseGetArgs{
-						ResultSet: ResultSetInStatLeaseGet{
-							Columns: statLeaseGetResponseDHCPv4Columns,
-							Rows: convertInt64SeriesToBigInts([][]int64{
-								{10, 256 + totalShift, 111 + shift, 0 + shift},
-								{20, 4098 + totalShift, 2034 + shift, 4 + shift},
-							}),
-						},
-						Timestamp: "2018-05-04 15:03:37.000000",
-					},
-				},
-			},
-			[]StatGetResponse4{
-				{
-					ResponseHeader: keactrl.ResponseHeader{
-						Result: 0,
-						Text:   "Everything is fine",
-					},
-					Arguments: &ResponseArguments4{
-						Samples: []interface{}{
-							[]interface{}{44, "2019-07-30 10:13:00.000000"},
-						},
-					},
-				},
-			},
-			[]StatLeaseGetResponse{
-				{
-					ResponseHeader: keactrl.ResponseHeader{
-						Result: 0,
-						Text:   "Everything is fine",
-					},
-					Arguments: &StatLeaseGetArgs{
-						ResultSet: ResultSetInStatLeaseGet{
-							Columns: []string{"subnet-id", "total-nas", "assigned-nas", "declined-nas", "total-pds", "assigned-pds"},
-							Rows: convertInt64SeriesToBigInts([][]int64{
-								{30, 4096 + totalShift, 2400 + shift, 3 + shift, 0 + totalShift, 0 + shift},
-								{40, 0 + totalShift, 0 + shift, 0 + shift, 1048 + totalShift, 233 + shift},
-								{50, 256 + totalShift, 60 + shift, 0 + shift, 1048 + totalShift, 15 + shift},
-								{60, -1, 9223372036854775807, 0, -2, -3},
-							}),
-						},
-						Timestamp: "2018-05-04 15:03:37.000000",
-					},
-				},
-			},
-			[]StatGetResponse6{
-				{
-					ResponseHeader: keactrl.ResponseHeader{
-						Result: 0,
-						Text:   "Everything is fine",
-					},
-					Arguments: &ResponseArguments6{
-						Samples: []interface{}{
-							[]interface{}{66, "2019-07-30 10:13:00.000000"},
-						},
-					},
-				},
-			},
+
+		return []string{
+			fmt.Sprintf(`[{
+				"result": 0,
+				"arguments": {
+					"subnet[10].%[1]s": [ [ %[4]d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[10].%[2]s": [ [ %[5]d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[10].%[3]s": [ [ %[6]d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[20].%[1]s": [ [ %[7]d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[20].%[2]s": [ [ %[8]d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[20].%[3]s": [ [ %[9]d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[20].pool[0].%[1]s": [ [ %[10]d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[20].pool[0].%[2]s": [ [ %[11]d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[20].pool[0].%[3]s": [ [ %[12]d, "2019-07-30 10:13:00.000000" ] ],
+					"pkt4-ack-sent": [ [ 44, "2019-07-30 10:13:00.000000" ] ]
+				}
+			}]`, statistic4Names[0], statistic4Names[1], statistic4Names[2],
+				256+totalShift, 111+shift, 0+shift,
+				4098+totalShift, 2034+shift, 4+shift,
+				10+totalShift, 4+shift, 2+shift,
+			),
+			fmt.Sprintf(`[{
+				"result": 0,
+				"arguments": {
+					"subnet[30].total-nas": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[30].assigned-nas": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[30].declined-addresses": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[30].total-pds": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[30].assigned-pds": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[40].total-nas": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[40].assigned-nas": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[40].declined-addresses": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[40].total-pds": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[40].assigned-pds": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[50].total-nas": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[50].assigned-nas": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[50].declined-addresses": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[50].total-pds": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[50].assigned-pds": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[60].total-nas": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[60].assigned-nas": [ [ %s, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[60].declined-addresses": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[60].total-pds": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[60].assigned-pds": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[50].pool[0].total-nas": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[50].pool[0].assigned-nas": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[50].pool[0].declined-addresses": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[50].pd-pool[0].total-pds": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"subnet[50].pd-pool[0].assigned-pds": [ [ %d, "2019-07-30 10:13:00.000000" ] ],
+					"pkt6-reply-sent": [ [ 66, "2019-07-30 10:13:00.000000" ] ]
+				}
+			}]`,
+				4096+totalShift, 2400+shift, 3+shift, 0+totalShift, 0+shift,
+				0+totalShift, 0+shift, 0+shift, 1048+totalShift, 233+shift,
+				256+totalShift, 60+shift, 0+shift, 1048+totalShift, 15+shift,
+				-1, "9223372036854775807", 0, -2, -3,
+				20+totalShift, 8+shift, 4+shift, 40+totalShift, 20+shift,
+			),
 		}
-
-		var jsons []string
-
-		for _, item := range data {
-			j, _ := json.Marshal(item)
-			jsons = append(jsons, string(j))
-		}
-
-		return jsons
 	})
 }
 
@@ -161,11 +122,7 @@ func createStandardKeaMock(oldStatsFormat bool) func(callNo int, cmdResponses []
 func createDhcpConfigs() (string, string) {
 	dhcp4 := `{
 		"Dhcp4": {
-			"hooks-libraries": [
-				{
-					"library": "/usr/lib/kea/libdhcp_stat_cmds.so"
-				}
-			],
+			"hooks-libraries": [],
 			"reservations": [
 				{
 					"hw-address": "01:bb:cc:dd:ee:ff",
@@ -210,11 +167,7 @@ func createDhcpConfigs() (string, string) {
 	}`
 	dhcp6 := `{
 		"Dhcp6": {
-			"hooks-libraries": [
-				{
-					"library": "/usr/lib/kea/libdhcp_stat_cmds.so"
-				}
-			],
+			"hooks-libraries": [],
 			"reservations": [
 				{
 					"hw-address": "03:bb:cc:dd:ee:ff",
@@ -293,6 +246,8 @@ func verifyStandardLocalSubnetsStatistics(t *testing.T, db *pg.DB) {
 	localSubnets := []*dbmodel.LocalSubnet{}
 	q := db.Model(&localSubnets)
 	q = q.Relation("Daemon")
+	q = q.Relation("AddressPools")
+	q = q.Relation("PrefixPools")
 	err := q.Select()
 	require.NoError(t, err)
 	snCnt := 0
@@ -310,6 +265,12 @@ func verifyStandardLocalSubnetsStatistics(t *testing.T, db *pg.DB) {
 			require.Equal(t, uint64(4+shift), sn.Stats["declined-addresses"])
 			require.Equal(t, uint64(4098+totalShift), sn.Stats["total-addresses"])
 			snCnt++
+
+			// Check pools.
+			require.Len(t, sn.AddressPools, 1)
+			require.Equal(t, uint64(10+totalShift), sn.AddressPools[0].Stats["total-addresses"])
+			require.Equal(t, uint64(4+shift), sn.AddressPools[0].Stats["assigned-addresses"])
+			require.Equal(t, uint64(2+shift), sn.AddressPools[0].Stats["declined-addresses"])
 		case 30:
 			require.Equal(t, uint64(2400+shift), sn.Stats["assigned-nas"])
 			require.Equal(t, uint64(0+shift), sn.Stats["assigned-pds"])
@@ -331,6 +292,16 @@ func verifyStandardLocalSubnetsStatistics(t *testing.T, db *pg.DB) {
 			require.Equal(t, uint64(256+totalShift), sn.Stats["total-nas"])
 			require.Equal(t, uint64(1048+totalShift), sn.Stats["total-pds"])
 			snCnt++
+
+			// Check pools.
+			require.Len(t, sn.AddressPools, 1)
+			require.Equal(t, uint64(20+totalShift), sn.AddressPools[0].Stats["total-nas"])
+			require.Equal(t, uint64(8+shift), sn.AddressPools[0].Stats["assigned-nas"])
+			require.Equal(t, uint64(4+shift), sn.AddressPools[0].Stats["declined-nas"])
+
+			require.Len(t, sn.PrefixPools, 1)
+			require.Equal(t, uint64(40+totalShift), sn.PrefixPools[0].Stats["total-pds"])
+			require.Equal(t, uint64(20+shift), sn.PrefixPools[0].Stats["assigned-pds"])
 		case 60:
 			require.Equal(t, uint64(math.MaxUint64), sn.Stats["total-nas"])
 			require.Equal(t, uint64(math.MaxInt64), sn.Stats["assigned-nas"])
@@ -378,7 +349,7 @@ func TestStatsPullerBasic(t *testing.T) {
 }
 
 // Check if Kea response to stat-leaseX-get command is handled correctly when it is
-// empty or when stats hooks library is not loaded.  The RPS responses are valid,
+// empty or when Kea returns an error.  The RPS responses are valid,
 // they have their own unit tests in rps_test.go.
 func TestStatsPullerEmptyResponse(t *testing.T) {
 	// Arrange
@@ -388,30 +359,18 @@ func TestStatsPullerEmptyResponse(t *testing.T) {
 	_ = createAppWithSubnets(t, db, 0, "", "")
 
 	// prepare fake agents
-	keaMock := createKeaMock(func(callNo int) (jsons []string) {
+	keaMock := createKeaMock(t, func(callNo int) (jsons []string) {
 		return []string{
 			// simulate empty response
-			`[{
-				"result": 0,
-				"text": "Everything is fine",
-				"arguments": {}
-			}]`,
 			`[{
 				"result": 0, "text": "Everything is fine",
 				"arguments": {
 					"pkt4-ack-sent": [ [ 0, "2019-07-30 10:13:00.000000" ] ]
 				}
 			}]`,
-			// simulate not loaded stat plugin in kea
+			// simulate an error is returned from Kea
 			`[{
-				"result": 2,
-				"text": "'stat-lease6-get' command not supported."
-			}]`,
-			`[{
-				"result": 0, "text": "Everything is fine",
-				"arguments": {
-					"pkt6-reply-sent": [ [ 0, "2019-07-30 10:13:00.000000" ] ]
-				}
+				"result": 1, "text": "error occurred"
 			}]`,
 		}
 	})
@@ -446,7 +405,7 @@ func checkStatsPullerPullStats(t *testing.T, statsFormat string) {
 	v4Config, v6Config := createDhcpConfigs()
 	app := createAppWithSubnets(t, db, 0, v4Config, v6Config)
 
-	keaMock := createStandardKeaMock(statsFormat == "1.6")
+	keaMock := createStandardKeaMock(t, statsFormat == "1.6")
 
 	fa := agentcommtest.NewFakeAgents(keaMock, nil)
 	lookup := dbmodel.NewDHCPOptionDefinitionLookup()
@@ -494,20 +453,20 @@ func checkStatsPullerPullStats(t *testing.T, statsFormat string) {
 	for _, sn := range subnets {
 		switch sn.LocalSubnets[0].LocalSubnetID {
 		case 10:
-			require.InDelta(t, 111.0/256.0, float64(sn.AddrUtilization)/1000.0, 0.001)
+			require.InDelta(t, 111.0/256.0, float64(sn.AddrUtilization), 0.001)
 			require.Zero(t, sn.PdUtilization)
 		case 20:
-			require.InDelta(t, 2034.0/(4098.0+2), float64(sn.AddrUtilization)/1000.0, 0.001)
+			require.InDelta(t, 2034.0/(4098.0+2), float64(sn.AddrUtilization), 0.001)
 			require.Zero(t, sn.PdUtilization)
 		case 30:
-			require.InDelta(t, 2400.0/4096.0, float64(sn.AddrUtilization)/1000.0, 0.001)
+			require.InDelta(t, 2400.0/4096.0, float64(sn.AddrUtilization), 0.001)
 			require.Zero(t, sn.PdUtilization)
 		case 40:
 			require.Zero(t, sn.AddrUtilization)
-			require.InDelta(t, 233.0/1048.0, float64(sn.PdUtilization)/1000.0, 0.001)
+			require.InDelta(t, 233.0/1048.0, float64(sn.PdUtilization), 0.001)
 		case 50:
-			require.InDelta(t, 60.0/(256.0+2), float64(sn.AddrUtilization)/1000.0, 0.001)
-			require.InDelta(t, 15.0/(1048.0+1), float64(sn.PdUtilization)/1000.0, 0.001)
+			require.InDelta(t, 60.0/(256.0+2), float64(sn.AddrUtilization), 0.001)
+			require.InDelta(t, 15.0/(1048.0+1), float64(sn.PdUtilization), 0.001)
 		}
 	}
 
@@ -538,51 +497,6 @@ func TestStatsPullerPullStatsKea16Format(t *testing.T) {
 
 func TestStatsPullerPullStatsKea18Format(t *testing.T) {
 	checkStatsPullerPullStats(t, "1.8")
-}
-
-// Stork should not attempt to get statistics from  the Kea application without the
-// stat_cmds hook library.
-func TestGetStatsFromAppWithoutStatCmd(t *testing.T) {
-	// Arrange
-	db, _, teardown := dbtest.SetupDatabaseTestCase(t)
-	defer teardown()
-	dbmodel.InitializeSettings(db, 0)
-
-	fa := agentcommtest.NewFakeAgents(nil, nil)
-
-	app := &dbmodel.App{
-		ID:   1,
-		Type: dbmodel.AppTypeKea,
-		Daemons: []*dbmodel.Daemon{
-			{
-				Active: true,
-				Name:   "dhcp4",
-				KeaDaemon: &dbmodel.KeaDaemon{
-					Config: dbmodel.NewKeaConfig(&map[string]interface{}{
-						"Dhcp4": map[string]interface{}{},
-					}),
-				},
-			},
-			{
-				Active: true,
-				Name:   "dhcp6",
-				KeaDaemon: &dbmodel.KeaDaemon{
-					Config: dbmodel.NewKeaConfig(&map[string]interface{}{
-						"Dhcp6": map[string]interface{}{},
-					}),
-				},
-			},
-		},
-	}
-
-	sp, _ := NewStatsPuller(db, fa)
-
-	// Act
-	err := sp.getStatsFromApp(app)
-
-	// Assert
-	require.NoError(t, err)
-	require.Zero(t, fa.CallNo)
 }
 
 // Prepares the Kea configuration file with HA hook and some subnets.
@@ -822,20 +736,20 @@ func verifyCountingStatisticsFromPrimary(t *testing.T, db *pg.DB) {
 	for _, sn := range subnets {
 		switch sn.Prefix {
 		case "192.0.2.0/24":
-			require.InDelta(t, 111.0/256.0, float64(sn.AddrUtilization)/1000.0, 0.001)
+			require.InDelta(t, 111.0/256.0, float64(sn.AddrUtilization), 0.001)
 			require.Zero(t, sn.PdUtilization)
 		case "192.0.3.0/26":
-			require.InDelta(t, 2034.0/(4098.0+2), float64(sn.AddrUtilization)/1000.0, 0.001)
+			require.InDelta(t, 2034.0/(4098.0+2), float64(sn.AddrUtilization), 0.001)
 			require.Zero(t, sn.PdUtilization)
 		case "2001:db8:1::/64":
-			require.InDelta(t, 2400.0/4096.0, float64(sn.AddrUtilization)/1000.0, 0.001)
+			require.InDelta(t, 2400.0/4096.0, float64(sn.AddrUtilization), 0.001)
 			require.Zero(t, sn.PdUtilization)
 		case "2001:db8:2::/64":
 			require.Zero(t, sn.AddrUtilization)
-			require.InDelta(t, 233.0/1048.0, float64(sn.PdUtilization)/1000.0, 0.001)
+			require.InDelta(t, 233.0/1048.0, float64(sn.PdUtilization), 0.001)
 		case "2001:db8:3::/64":
-			require.InDelta(t, 60.0/(256.0+2), float64(sn.AddrUtilization)/1000.0, 0.001)
-			require.InDelta(t, 15.0/(1048.0+1), float64(sn.PdUtilization)/1000.0, 0.001)
+			require.InDelta(t, 60.0/(256.0+2), float64(sn.AddrUtilization), 0.001)
+			require.InDelta(t, 15.0/(1048.0+1), float64(sn.PdUtilization), 0.001)
 		}
 	}
 
@@ -874,20 +788,20 @@ func verifyCountingStatisticsFromSecondary(t *testing.T, db *pg.DB) {
 	for _, sn := range subnets {
 		switch sn.Prefix {
 		case "192.0.2.0/24":
-			require.InDelta(t, 211.0/456.0, float64(sn.AddrUtilization)/1000.0, 0.001)
+			require.InDelta(t, 211.0/456.0, float64(sn.AddrUtilization), 0.001)
 			require.Zero(t, sn.PdUtilization)
 		case "192.0.3.0/26":
-			require.InDelta(t, 2134.0/(4298.0+2), float64(sn.AddrUtilization)/1000.0, 0.001)
+			require.InDelta(t, 2134.0/(4298.0+2), float64(sn.AddrUtilization), 0.001)
 			require.Zero(t, sn.PdUtilization)
 		case "2001:db8:1::/64":
-			require.InDelta(t, 2500.0/4296.0, float64(sn.AddrUtilization)/1000.0, 0.001)
-			require.EqualValues(t, 100.0/200.0, float64(sn.PdUtilization)/1000.0, 0.001)
+			require.InDelta(t, 2500.0/4296.0, float64(sn.AddrUtilization), 0.001)
+			require.EqualValues(t, 100.0/200.0, float64(sn.PdUtilization), 0.001)
 		case "2001:db8:2::/64":
-			require.EqualValues(t, 100.0/200.0, float64(sn.AddrUtilization)/1000.0, 0.001)
-			require.InDelta(t, 333.0/1248.0, float64(sn.PdUtilization)/1000.0, 0.001)
+			require.EqualValues(t, 100.0/200.0, float64(sn.AddrUtilization), 0.001)
+			require.InDelta(t, 333.0/1248.0, float64(sn.PdUtilization), 0.001)
 		case "2001:db8:3::/64":
-			require.InDelta(t, 160.0/(456.0+2), float64(sn.AddrUtilization)/1000.0, 0.001)
-			require.InDelta(t, 115.0/(1248.0+1), float64(sn.PdUtilization)/1000.0, 0.001)
+			require.InDelta(t, 160.0/(456.0+2), float64(sn.AddrUtilization), 0.001)
+			require.InDelta(t, 115.0/(1248.0+1), float64(sn.PdUtilization), 0.001)
 		}
 	}
 
@@ -935,7 +849,7 @@ func TestPrepareHAEnvironment(t *testing.T) {
 
 	// Act
 	loadBalancing, hotStandby := prepareHAEnvironment(t, db)
-	keaMock := createKeaMock(func(callNo int) (jsons []string) { return []string{} })
+	keaMock := createKeaMock(t, func(callNo int) (jsons []string) { return []string{} })
 
 	fa := agentcommtest.NewFakeAgents(keaMock, nil)
 	sp, err := NewStatsPuller(db, fa)
@@ -956,7 +870,7 @@ func TestStatsPullerPullStatsHAPairNotInitializedYet(t *testing.T) {
 
 	loadBalancing, hotStandby := prepareHAEnvironment(t, db)
 
-	keaMock := createStandardKeaMock(false)
+	keaMock := createStandardKeaMock(t, false)
 
 	fa := agentcommtest.NewFakeAgents(keaMock, nil)
 
@@ -976,6 +890,13 @@ func TestStatsPullerPullStatsHAPairNotInitializedYet(t *testing.T) {
 	require.Empty(t, loadBalancing.HAService.SecondaryLastState)
 	require.Empty(t, hotStandby.HAService.PrimaryLastState)
 	require.Empty(t, hotStandby.HAService.SecondaryLastState)
+
+	require.Len(t, fa.RecordedCommands, 5)
+	for _, command := range fa.RecordedCommands {
+		daemons := command.GetDaemonsList()
+		require.Len(t, daemons, 1)
+		require.Contains(t, []string{dbmodel.DaemonNameDHCPv4, dbmodel.DaemonNameDHCPv6}, daemons[0])
+	}
 
 	verifyCountingStatisticsFromPrimary(t, db)
 }
@@ -999,7 +920,7 @@ func TestStatsPullerPullStatsHAPairHealthy(t *testing.T) {
 	_ = dbmodel.UpdateService(db, loadBalancing)
 	_ = dbmodel.UpdateService(db, hotStandby)
 
-	keaMock := createStandardKeaMock(false)
+	keaMock := createStandardKeaMock(t, false)
 
 	fa := agentcommtest.NewFakeAgents(keaMock, nil)
 
@@ -1038,7 +959,7 @@ func TestStatsPullerPullStatsHAPairPrimaryIsDownSecondaryIsReady(t *testing.T) {
 	_ = dbmodel.UpdateService(db, loadBalancing)
 	_ = dbmodel.UpdateService(db, hotStandby)
 
-	keaMock := createStandardKeaMock(false)
+	keaMock := createStandardKeaMock(t, false)
 
 	fa := agentcommtest.NewFakeAgents(keaMock, nil)
 
@@ -1077,7 +998,7 @@ func TestStatsPullerPullStatsHAPairPrimaryIsDownSecondaryIsDown(t *testing.T) {
 	_ = dbmodel.UpdateService(db, loadBalancing)
 	_ = dbmodel.UpdateService(db, hotStandby)
 
-	keaMock := createStandardKeaMock(false)
+	keaMock := createStandardKeaMock(t, false)
 
 	fa := agentcommtest.NewFakeAgents(keaMock, nil)
 
@@ -1097,35 +1018,8 @@ func TestStatsPullerPullStatsHAPairPrimaryIsDownSecondaryIsDown(t *testing.T) {
 	verifyCountingStatisticsFromPrimary(t, db)
 }
 
-//go:embed testdata/kea-dhcp6_v2.5.5_stat-lease6-get_big-numbers.json
+//go:embed testdata/kea-dhcp6_v2.5.5_statistic-get-all_big-numbers.json
 var statisticGetAllBigNumbersJSON []byte
-
-// Test that unmarshalling of the Kea stat-lease6-get response does not lose
-// precision when the values exceed the maximum value of int64.
-func TestUnmarshalStatLeaseGetResponse(t *testing.T) {
-	// Arrange
-	var response []StatLeaseGetResponse
-	expected0, _ := big.NewInt(0).SetString("844424930131968", 10)
-	expected1, _ := big.NewInt(0).SetString("281474976710656", 10)
-	expected2, _ := big.NewInt(0).SetString("2417851639229258349412352", 10)
-	expectedValues := []*big.Int{expected0, expected1, expected2}
-
-	// Act
-	err := json.Unmarshal(statisticGetAllBigNumbersJSON, &response)
-
-	// Assert
-	require.NoError(t, err)
-	require.Equal(t, "subnet-id", response[0].Arguments.ResultSet.Columns[0])
-	require.Equal(t, "total-nas", response[0].Arguments.ResultSet.Columns[1])
-
-	for i, value := range expectedValues {
-		require.EqualValues(t, i+1, response[0].Arguments.ResultSet.Rows[i][0].BigInt().Int64())
-		require.Equal(t,
-			value,
-			response[0].Arguments.ResultSet.Rows[i][1].BigInt(),
-		)
-	}
-}
 
 // Test that the statistics with values exceeding the maximum value of int64
 // are stored without loss of precision.
@@ -1138,8 +1032,9 @@ func TestProcessAppResponsesForResponseWithBigNumbers(t *testing.T) {
 	fa := agentcommtest.NewFakeAgents(nil, nil)
 	puller, _ := NewStatsPuller(db, fa)
 
-	var response []StatLeaseGetResponse
-	_ = json.Unmarshal(statisticGetAllBigNumbersJSON, &response)
+	var response keactrl.StatisticGetAllResponse
+	err := json.Unmarshal(statisticGetAllBigNumbersJSON, &response)
+	require.NoError(t, err)
 
 	// Seed database.
 	machine := &dbmodel.Machine{Address: "localhost", AgentPort: 8080}
@@ -1155,7 +1050,7 @@ func TestProcessAppResponsesForResponseWithBigNumbers(t *testing.T) {
 	}
 	daemons, _ := dbmodel.AddApp(db, app)
 
-	for i := 1; i <= 3; i++ {
+	for i := 1; i <= 10; i++ {
 		subnet := &dbmodel.Subnet{
 			Prefix: fmt.Sprintf("3001:%d::/48", i),
 			LocalSubnets: []*dbmodel.LocalSubnet{
@@ -1169,16 +1064,31 @@ func TestProcessAppResponsesForResponseWithBigNumbers(t *testing.T) {
 		require.NoError(t, err)
 		err = dbmodel.AddLocalSubnets(db, subnet)
 		require.NoError(t, err)
+		for _, ls := range subnet.LocalSubnets {
+			for _, pool := range ls.AddressPools {
+				err = dbmodel.AddAddressPool(db, &pool)
+				require.NoError(t, err)
+			}
+		}
+		for _, ls := range subnet.LocalSubnets {
+			for _, pool := range ls.PrefixPools {
+				err = dbmodel.AddPrefixPool(db, &pool)
+				require.NoError(t, err)
+			}
+		}
 	}
 
 	// Act
-	err := puller.processAppResponses(app, []*keactrl.Command{keactrl.NewCommandBase(keactrl.StatLease6Get)}, daemons, []any{&response})
+	err = puller.processAppResponses(
+		app, []*keactrl.Command{keactrl.NewCommandBase(keactrl.StatisticGetAll)},
+		daemons, []keactrl.StatisticGetAllResponseItem{response[0]},
+	)
 
 	// Assert
 	require.NoError(t, err)
 	subnets, err := dbmodel.GetAllSubnets(db, 0)
 	require.NoError(t, err)
-	require.Len(t, subnets, 3)
+	require.Len(t, subnets, 10)
 
 	subnet := subnets[0]
 	require.Len(t, subnet.LocalSubnets, 1)
@@ -1186,8 +1096,8 @@ func TestProcessAppResponsesForResponseWithBigNumbers(t *testing.T) {
 	stats := subnet.LocalSubnets[0].Stats
 	require.Equal(t, uint64(844424930131968), stats["total-nas"])
 	require.Equal(t, uint64(0), stats["cumulative-assigned-nas"])
-	require.Equal(t, uint64(9), stats["assigned-nas"])
-	require.Equal(t, uint64(10), stats["declined-addresses"])
+	require.Equal(t, uint64(2), stats["assigned-nas"])
+	require.Equal(t, uint64(1), stats["declined-addresses"])
 
 	subnet = subnets[1]
 	require.Len(t, subnet.LocalSubnets, 1)
@@ -1198,13 +1108,55 @@ func TestProcessAppResponsesForResponseWithBigNumbers(t *testing.T) {
 	require.Equal(t, uint64(0), stats["assigned-nas"])
 	require.Equal(t, uint64(0), stats["declined-addresses"])
 
-	subnet = subnets[2]
+	subnet = subnets[4]
 	require.Len(t, subnet.LocalSubnets, 1)
-	require.EqualValues(t, 3, subnet.LocalSubnets[0].LocalSubnetID)
+	require.EqualValues(t, 5, subnet.LocalSubnets[0].LocalSubnetID)
 	stats = subnet.LocalSubnets[0].Stats
-	expectedTotalNAs, _ := big.NewInt(0).SetString("2417851639229258349412352", 10)
+	expectedTotalNAs, _ := big.NewInt(0).SetString("36893488147419103232", 10)
 	require.Equal(t, expectedTotalNAs, stats["total-nas"])
 	require.Equal(t, uint64(0), stats["cumulative-assigned-nas"])
 	require.Equal(t, uint64(0), stats["assigned-nas"])
 	require.Equal(t, uint64(0), stats["declined-addresses"])
+}
+
+// Test that an error is returned when the number of responses does not match
+// the number of commands.
+func TestProcessAppResponsesWithDifferentNumberOfResponses(t *testing.T) {
+	// Arrange
+	puller := &StatsPuller{}
+
+	responses := []keactrl.StatisticGetAllResponseItem{{}, {}}
+	commandsCases := [][]*keactrl.Command{
+		// More responses than commands.
+		{keactrl.NewCommandBase(keactrl.StatisticGetAll)},
+		// More commands than responses.
+		{
+			keactrl.NewCommandBase(keactrl.StatisticGetAll),
+			keactrl.NewCommandBase(keactrl.StatisticGetAll),
+			keactrl.NewCommandBase(keactrl.StatisticGetAll),
+		},
+	}
+	caseLabels := []string{
+		"More responses than commands", "More commands than responses",
+	}
+
+	for i, label := range caseLabels {
+		t.Run(label, func(t *testing.T) {
+			commands := commandsCases[i]
+
+			// Act
+			err := puller.processAppResponses(
+				nil, commands, nil, responses,
+			)
+
+			// Assert
+			require.ErrorContains(
+				t, err,
+				fmt.Sprintf(
+					"number of commands (%d) does not match number of responses (%d)",
+					len(commands), len(responses),
+				),
+			)
+		})
+	}
 }

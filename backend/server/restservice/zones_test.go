@@ -2,22 +2,31 @@ package restservice
 
 import (
 	context "context"
+	_ "embed"
+	"encoding/json"
 	"fmt"
+	iter "iter"
 	http "net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	dnslib "github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 	gomock "go.uber.org/mock/gomock"
+	"isc.org/stork/server/agentcomm"
 	dbmodel "isc.org/stork/server/database/model"
 	dbtest "isc.org/stork/server/database/test"
 	"isc.org/stork/server/dnsop"
 	"isc.org/stork/server/gen/models"
-	"isc.org/stork/server/gen/restapi/operations/dns"
+	dns "isc.org/stork/server/gen/restapi/operations/dns"
 	"isc.org/stork/testutil"
 	storkutil "isc.org/stork/util"
 )
+
+//go:embed testdata/valid-zone.json
+var validZone []byte
 
 // Error used in the unit tests.
 type testError struct{}
@@ -439,7 +448,7 @@ func TestGetZonesFetch(t *testing.T) {
 		})
 		require.GreaterOrEqual(t, index, 0)
 		require.Equal(t, d.Error, rspOK.Payload.Items[index].Error)
-		require.Equal(t, d.ZoneCount, rspOK.Payload.Items[index].ZoneCount)
+		require.Equal(t, d.ZoneCount, rspOK.Payload.Items[index].ZoneConfigsCount)
 		require.Positive(t, rspOK.Payload.Items[index].DaemonID)
 		require.Positive(t, rspOK.Payload.Items[index].AppID)
 		require.NotZero(t, rspOK.Payload.Items[index].CreatedAt)
@@ -553,4 +562,165 @@ func TestPutZonesFetchError(t *testing.T) {
 	defaultRsp := rsp.(*dns.PutZonesFetchDefault)
 	require.Equal(t, http.StatusInternalServerError, getStatusCode(*defaultRsp))
 	require.Equal(t, "Failed to start fetching the zones", *defaultRsp.Payload.Message)
+}
+
+// Test successfully receiving the zone RRs from the manager.
+func TestGetZoneRRs(t *testing.T) {
+	db, dbSettings, teardown := dbtest.SetupDatabaseTestCase(t)
+	defer teardown()
+
+	var rrs []string
+	err := json.Unmarshal(validZone, &rrs)
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	mockManager := NewMockManager(ctrl)
+	mockManager.EXPECT().GetZoneRRs(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(zoneID int64, daemonID int64, viewName string) iter.Seq2[[]dnslib.RR, error] {
+		return func(yield func([]dnslib.RR, error) bool) {
+			for _, rr := range rrs {
+				rr, err := dnslib.NewRR(rr)
+				require.NoError(t, err)
+				if !yield([]dnslib.RR{rr}, nil) {
+					return
+				}
+			}
+		}
+	})
+
+	settings := RestAPISettings{}
+	rapi, err := NewRestAPI(&settings, dbSettings, db, mockManager)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	params := dns.GetZoneRRsParams{}
+	rsp := rapi.GetZoneRRs(ctx, params)
+	require.IsType(t, &dns.GetZoneRRsOK{}, rsp)
+	rspOK := (rsp).(*dns.GetZoneRRsOK)
+	require.Equal(t, len(rrs), len(rspOK.Payload.Items))
+
+	for i, rr := range rrs {
+		parsedRR, err := dnslib.NewRR(rr)
+		require.NoError(t, err)
+		require.Equal(t, parsedRR.Header().Name, rspOK.Payload.Items[i].Name)
+		require.EqualValues(t, parsedRR.Header().Ttl, rspOK.Payload.Items[i].TTL)
+		require.Equal(t, dnslib.ClassToString[parsedRR.Header().Class], rspOK.Payload.Items[i].RrClass)
+		require.Equal(t, dnslib.TypeToString[parsedRR.Header().Rrtype], rspOK.Payload.Items[i].RrType)
+		parsedFields := strings.Fields(rr)
+		require.Greater(t, len(parsedFields), 4)
+		fields := strings.Fields(rspOK.Payload.Items[i].Data)
+		for _, field := range fields {
+			require.Contains(t, parsedFields[4:], field)
+		}
+	}
+}
+
+// Test that HTTP Conflict status is returned when the zone transfer for the
+// same zone and view is already in progress.
+func TestGetZoneRRsAnotherRequestInProgress(t *testing.T) {
+	db, dbSettings, teardown := dbtest.SetupDatabaseTestCase(t)
+	defer teardown()
+
+	var rrs []string
+	err := json.Unmarshal(validZone, &rrs)
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	mockManager := NewMockManager(ctrl)
+	mockManager.EXPECT().GetZoneRRs(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(zoneID int64, daemonID int64, viewName string) iter.Seq2[[]dnslib.RR, error] {
+		return func(yield func([]dnslib.RR, error) bool) {
+			yield(nil, dnsop.NewManagerRRsAlreadyRequestedError("trusted", "example.com"))
+		}
+	})
+
+	settings := RestAPISettings{}
+	rapi, err := NewRestAPI(&settings, dbSettings, db, mockManager)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	params := dns.GetZoneRRsParams{}
+	rsp := rapi.GetZoneRRs(ctx, params)
+	require.IsType(t, &dns.GetZoneRRsDefault{}, rsp)
+	defaultRsp := rsp.(*dns.GetZoneRRsDefault)
+	require.Equal(t, http.StatusConflict, getStatusCode(*defaultRsp))
+	require.Contains(t, *defaultRsp.Payload.Message, "zone transfer for view trusted, zone example.com has been already requested by another user")
+}
+
+// Test that HTTP Conflict status is returned when the zone inventory is busy.
+func TestGetZoneRRsBusy(t *testing.T) {
+	db, dbSettings, teardown := dbtest.SetupDatabaseTestCase(t)
+	defer teardown()
+
+	ctrl := gomock.NewController(t)
+	mockManager := NewMockManager(ctrl)
+	mockManager.EXPECT().GetZoneRRs(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(zoneID int64, daemonID int64, viewName string) iter.Seq2[[]dnslib.RR, error] {
+		return func(yield func([]dnslib.RR, error) bool) {
+			yield(nil, agentcomm.NewZoneInventoryBusyError("localhost:8080"))
+		}
+	})
+
+	settings := RestAPISettings{}
+	rapi, err := NewRestAPI(&settings, dbSettings, db, mockManager)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	params := dns.GetZoneRRsParams{}
+	rsp := rapi.GetZoneRRs(ctx, params)
+	require.IsType(t, &dns.GetZoneRRsDefault{}, rsp)
+	defaultRsp := rsp.(*dns.GetZoneRRsDefault)
+	require.Equal(t, http.StatusConflict, getStatusCode(*defaultRsp))
+	require.Contains(t, *defaultRsp.Payload.Message, "Zone inventory is temporarily busy on the agent localhost:8080")
+}
+
+// Test that HTTP ServiceUnavailable status is returned when the zone inventory
+// is not initialized.
+func TestGetZoneRRsNotInited(t *testing.T) {
+	db, dbSettings, teardown := dbtest.SetupDatabaseTestCase(t)
+	defer teardown()
+
+	ctrl := gomock.NewController(t)
+	mockManager := NewMockManager(ctrl)
+	mockManager.EXPECT().GetZoneRRs(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(zoneID int64, daemonID int64, viewName string) iter.Seq2[[]dnslib.RR, error] {
+		return func(yield func([]dnslib.RR, error) bool) {
+			yield(nil, agentcomm.NewZoneInventoryNotInitedError("localhost:8080"))
+		}
+	})
+
+	settings := RestAPISettings{}
+	rapi, err := NewRestAPI(&settings, dbSettings, db, mockManager)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	params := dns.GetZoneRRsParams{}
+	rsp := rapi.GetZoneRRs(ctx, params)
+	require.IsType(t, &dns.GetZoneRRsDefault{}, rsp)
+	defaultRsp := rsp.(*dns.GetZoneRRsDefault)
+	require.Equal(t, http.StatusServiceUnavailable, getStatusCode(*defaultRsp))
+	require.Contains(t, *defaultRsp.Payload.Message, "DNS zones have not been loaded on the agent localhost:8080")
+}
+
+// Test that HTTP InternalServerError status is returned when an unknown error
+// occurs while getting the zone RRs.
+func TestGetZoneRRsUnknownError(t *testing.T) {
+	db, dbSettings, teardown := dbtest.SetupDatabaseTestCase(t)
+	defer teardown()
+
+	ctrl := gomock.NewController(t)
+	mockManager := NewMockManager(ctrl)
+	mockManager.EXPECT().GetZoneRRs(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(zoneID int64, daemonID int64, viewName string) iter.Seq2[[]dnslib.RR, error] {
+		return func(yield func([]dnslib.RR, error) bool) {
+			yield(nil, &testError{})
+		}
+	})
+
+	settings := RestAPISettings{}
+	rapi, err := NewRestAPI(&settings, dbSettings, db, mockManager)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	params := dns.GetZoneRRsParams{}
+	rsp := rapi.GetZoneRRs(ctx, params)
+	require.IsType(t, &dns.GetZoneRRsDefault{}, rsp)
+	defaultRsp := rsp.(*dns.GetZoneRRsDefault)
+	require.Equal(t, http.StatusInternalServerError, getStatusCode(*defaultRsp))
+	require.Contains(t, *defaultRsp.Payload.Message, "Failed to get zone contents using zone transfer")
 }

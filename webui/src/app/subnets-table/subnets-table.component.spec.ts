@@ -1,9 +1,9 @@
-import { ComponentFixture, fakeAsync, TestBed, tick } from '@angular/core/testing'
+import { ComponentFixture, fakeAsync, flush, TestBed, tick } from '@angular/core/testing'
 
 import { SubnetsTableComponent } from './subnets-table.component'
 import { ButtonModule } from 'primeng/button'
 import { OverlayPanelModule } from 'primeng/overlaypanel'
-import { InputNumberModule } from 'primeng/inputnumber'
+import { InputNumber, InputNumberModule } from 'primeng/inputnumber'
 import { FormsModule } from '@angular/forms'
 import { PanelModule } from 'primeng/panel'
 import { MessageService } from 'primeng/api'
@@ -25,6 +25,9 @@ import { HumanCountComponent } from '../human-count/human-count.component'
 import { EntityLinkComponent } from '../entity-link/entity-link.component'
 import { TooltipModule } from 'primeng/tooltip'
 import { provideHttpClient, withInterceptorsFromDi } from '@angular/common/http'
+import { ManagedAccessDirective } from '../managed-access.directive'
+import { UtilizationBarComponent } from '../utilization-bar/utilization-bar.component'
+import { PoolBarsComponent } from '../pool-bars/pool-bars.component'
 
 describe('SubnetsTableComponent', () => {
     let component: SubnetsTableComponent
@@ -41,6 +44,8 @@ describe('SubnetsTableComponent', () => {
                 SubnetBarComponent,
                 SubnetsTableComponent,
                 PluralizePipe,
+                UtilizationBarComponent,
+                PoolBarsComponent,
             ],
             imports: [
                 TableModule,
@@ -64,6 +69,7 @@ describe('SubnetsTableComponent', () => {
                     },
                 ]),
                 TooltipModule,
+                ManagedAccessDirective,
             ],
             providers: [MessageService, provideHttpClient(withInterceptorsFromDi()), provideHttpClientTesting()],
         }).compileComponents()
@@ -72,6 +78,8 @@ describe('SubnetsTableComponent', () => {
         fixture = TestBed.createComponent(SubnetsTableComponent)
         component = fixture.componentInstance
         fixture.detectChanges()
+        // Do not save table state between tests, because that makes tests unstable.
+        spyOn(component.table, 'saveState').and.callFake(() => {})
     })
 
     it('should create', () => {
@@ -222,4 +230,29 @@ describe('SubnetsTableComponent', () => {
         subnet = { localSubnets: [{ userContext: { 'subnet-name': 'foo' } }, { userContext: {} }] }
         expect(component.hasAssignedMultipleSubnetNames(subnet)).toBeTrue()
     })
+
+    it('should not filter the table by numeric input with value zero', fakeAsync(() => {
+        // Arrange
+        const getSubnetsSpy = spyOn(dhcpApi, 'getSubnets').and.returnValue(of({ items: [], total: 0 }) as any)
+        const inputNumbers = fixture.debugElement.queryAll(By.directive(InputNumber))
+        expect(inputNumbers).toBeTruthy()
+        expect(inputNumbers.length).toEqual(2)
+
+        // Act
+        component.table.clear()
+        tick(300)
+        fixture.detectChanges()
+        inputNumbers[0].componentInstance.handleOnInput(new InputEvent('input'), '', 0) // appId
+        tick(300)
+        fixture.detectChanges()
+        inputNumbers[1].componentInstance.handleOnInput(new InputEvent('input'), '', 0) // subnetId
+        tick(300)
+        fixture.detectChanges()
+
+        // Assert
+        expect(getSubnetsSpy).toHaveBeenCalledTimes(3)
+        // Since zero is forbidden filter value for numeric inputs, we expect that minimum allowed value (i.e. 1) will be used.
+        expect(getSubnetsSpy).toHaveBeenCalledWith(0, 10, 1, 1, null, null)
+        flush()
+    }))
 })

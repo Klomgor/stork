@@ -46,20 +46,25 @@ The Stork agent does not require any specific dependencies to run. It can be run
 
 Stork uses the ``status-get`` command to communicate with Kea.
 
-Stork requires the premium Host Commands (``host_cmds``) hook library to be loaded by the Kea instances to retrieve host
+Stork requires the Host Commands (``host_cmds``) hook library to be loaded by the Kea instances to retrieve host
 reservations stored in an external database. Stork works without the Host Commands hook library, but is not able to display
 host reservations. Stork can retrieve host reservations stored locally in the Kea configuration without any additional hook
 libraries; however, managing (adding, updating, deleting) host reservations with Stork requires the ``host_cmds`` hooks to be loaded on all
 Kea instances where these host reservations belong.
 
-Stork requires the premium Subnet Commands (``subnet_cmds``) hook library to be loaded by the Kea instances
+Stork requires the Subnet Commands (``subnet_cmds``) hook library to be loaded by the Kea instances
 to manage the subnets and shared networks. Stork can fetch and present subnets and shared networks without this
 hook library; however, adding, updating, or deleting a subnet or shared network requires the ``subnet_cmds``
 hook library to be loaded on all Kea instances where this subnet or shared network belongs.
 
-Stork requires the open source Statistics Commands (``stat_cmds``) hook library to be loaded by the Kea instance to retrieve lease
-statistics. Stork works without the Stat Commands hook library, but is not able to show pool utilization and other
-statistics.
+.. note::
+
+    The current version of Stork is generally not compatible with the Kea
+    Configuration Backend (CB) (configuration-in-database).  Stork does not
+    yet support the CB Commands (``cb_cmds``) hook library, which is required
+    for proper use of the Kea CB.  Stork depends on libraries such as
+    ``subnet_cmds`` which are also generally not compatible with the Kea CB.
+    This is expected to change in a future release of Stork.
 
 Stork uses the Go implementation to handle TLS connections, certificates, and keys. The secrets are stored in the PostgreSQL
 database, in the ``secret`` table.
@@ -635,8 +640,6 @@ The following settings are specific to the Prometheus exporters:
 * ``STORK_AGENT_PROMETHEUS_KEA_EXPORTER_PORT`` - the port the agent should use to
   receive connections from Prometheus when fetching Kea statistics; the default is
   ``9547``
-* ``STORK_AGENT_PROMETHEUS_KEA_EXPORTER_INTERVAL`` - this specifies how often
-  the agent collects stats from Kea, in seconds; the default is ``10``
 * ``STORK_AGENT_PROMETHEUS_KEA_EXPORTER_PER_SUBNET_STATS`` - this enables or disables
   the collection of per-subnet stats from Kea; the default is ``true`` (collecting enabled).
   This option can be used to limit the data passed to Prometheus/Grafana in large networks.
@@ -646,8 +649,6 @@ The following settings are specific to the Prometheus exporters:
 * ``STORK_AGENT_PROMETHEUS_BIND9_EXPORTER_PORT`` - the port the agent should use to
   receive connections from Prometheus fetching BIND 9 statistics; the default is
   ``9119``
-* ``STORK_AGENT_PROMETHEUS_BIND9_EXPORTER_INTERVAL`` - this specifies how often
-  the agent collects stats from BIND 9, in seconds; the default is ``10``
 
 The last setting is used only when Stork agents register in the Stork server
 using an agent token:

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"net"
 	"runtime"
@@ -293,7 +294,7 @@ func (sa *StorkAgent) ForwardRndcCommand(ctx context.Context, in *agentapi.Forwa
 	app := sa.AppMonitor.GetApp(AppTypeBind9, AccessPointControl, in.Address, in.Port)
 	if app == nil {
 		rndcRsp.Status.Code = agentapi.Status_ERROR
-		rndcRsp.Status.Message = "Cannot find BIND 9 app"
+		rndcRsp.Status.Message = "cannot find BIND 9 app"
 		response.Status = rndcRsp.Status
 		return response, nil
 	}
@@ -301,7 +302,7 @@ func (sa *StorkAgent) ForwardRndcCommand(ctx context.Context, in *agentapi.Forwa
 	bind9App := app.(*Bind9App)
 	if bind9App == nil {
 		rndcRsp.Status.Code = agentapi.Status_ERROR
-		rndcRsp.Status.Message = fmt.Sprintf("Incorrect app found: %s instead of BIND 9", app.GetBaseApp().Type)
+		rndcRsp.Status.Message = fmt.Sprintf("incorrect app found: %s instead of BIND 9", app.GetBaseApp().Type)
 		response.Status = rndcRsp.Status
 		return response, nil
 	}
@@ -317,7 +318,7 @@ func (sa *StorkAgent) ForwardRndcCommand(ctx context.Context, in *agentapi.Forwa
 				"Port":    in.Port,
 			}).Errorf("Failed to forward commands to rndc")
 		rndcRsp.Status.Code = agentapi.Status_ERROR
-		rndcRsp.Status.Message = fmt.Sprintf("Failed to forward commands to rndc: %s", err.Error())
+		rndcRsp.Status.Message = fmt.Sprintf("failed to forward commands to rndc: %s", err.Error())
 	} else {
 		rndcRsp.Status.Code = agentapi.Status_OK
 		rndcRsp.Response = string(output)
@@ -329,44 +330,133 @@ func (sa *StorkAgent) ForwardRndcCommand(ctx context.Context, in *agentapi.Forwa
 
 // ForwardToNamedStats forwards a statistics request to the named daemon.
 func (sa *StorkAgent) ForwardToNamedStats(ctx context.Context, in *agentapi.ForwardToNamedStatsReq) (*agentapi.ForwardToNamedStatsRsp, error) {
-	reqURL := in.GetUrl()
-
+	innerGrpcResponse := &agentapi.NamedStatsResponse{
+		Status: &agentapi.Status{},
+	}
 	grpcResponse := &agentapi.ForwardToNamedStatsRsp{
 		Status: &agentapi.Status{
 			Code: agentapi.Status_OK, // all ok
 		},
+		NamedStatsResponse: innerGrpcResponse,
 	}
 
-	innerGrpcResponse := &agentapi.NamedStatsResponse{
-		Status: &agentapi.Status{},
+	var (
+		// This parameter is deprecated and was replaced by a set of new parameters that
+		// specify address, port and request type. However, we still support this parameter
+		// for backward compatibility with older Stork servers.
+		reqURL   string
+		response httpResponse
+		payload  []byte
+		err      error
+	)
+	// The new parameters take precedence over the request URL.
+	if in.GetStatsAddress() != "" {
+		request := sa.bind9StatsClient.createRequest(in.GetStatsAddress(), in.GetStatsPort())
+		var requestType string
+		switch in.GetRequestType() {
+		case agentapi.ForwardToNamedStatsReq_DEFAULT:
+			requestType = "default"
+			response, payload, err = request.getRawJSON("")
+		case agentapi.ForwardToNamedStatsReq_STATUS:
+			requestType = "status"
+			response, payload, err = request.getRawJSON("status")
+		case agentapi.ForwardToNamedStatsReq_SERVER:
+			requestType = "server"
+			response, payload, err = request.getRawJSON("server")
+		case agentapi.ForwardToNamedStatsReq_ZONES:
+			requestType = "zones"
+			response, payload, err = request.getRawJSON("zones")
+		case agentapi.ForwardToNamedStatsReq_NETWORK:
+			requestType = "net"
+			response, payload, err = request.getRawJSON("net")
+		case agentapi.ForwardToNamedStatsReq_MEMORY:
+			requestType = "mem"
+			response, payload, err = request.getRawJSON("mem")
+		case agentapi.ForwardToNamedStatsReq_TRAFFIC:
+			requestType = "traffic"
+			response, payload, err = request.getRawJSON("traffic")
+		case agentapi.ForwardToNamedStatsReq_SERVER_AND_TRAFFIC:
+			// This is a special case that requires sending two requests to named
+			// and combining the responses into one result. BIND can only return
+			// all the required statistics in a single response when the request
+			// is sent to the root URL. However, it also returns zones yielding
+			// a potentially very large response. To avoid this problem, we send
+			// two requests and combine the responses.
+			requestType = "server and traffic"
+			result := make(map[string]any)
+			for resp, e := range request.getCombinedJSON(&result, "server", "traffic") {
+				response = resp
+				// If there was an error, record it and break.
+				if e != nil {
+					err = e
+					break
+				}
+				// If there was an HTTP error, record the response and break.
+				if resp.IsError() {
+					break
+				}
+			}
+			// Both responses were OK. Need to convert it back to the binary form
+			// and return to the Stork server.
+			payload, err = json.Marshal(result)
+			if err != nil {
+				log.WithFields(log.Fields{
+					"statsAddress": in.GetStatsAddress(),
+					"statsPort":    in.GetStatsPort(),
+				}).WithError(err).Error("Failed to marshal the server and traffic stats to return to the Stork server")
+				innerGrpcResponse.Status.Code = agentapi.Status_ERROR
+				innerGrpcResponse.Status.Message = fmt.Sprintf("failed to marshal the server and traffic stats to return to the Stork server: %s", err.Error())
+				return grpcResponse, nil
+			}
+		}
+		// Log depending on whether we got an error or an HTTP error. These
+		// messages are logged with stats address, port and request type.
+		if err != nil {
+			log.WithFields(log.Fields{
+				"statsAddress": in.GetStatsAddress(),
+				"statsPort":    in.GetStatsPort(),
+				"requestType":  requestType,
+			}).WithError(err).Error("Failed to forward commands to named over the stats channel")
+		} else if response.IsError() {
+			log.WithFields(log.Fields{
+				"statsAddress": in.GetStatsAddress(),
+				"statsPort":    in.GetStatsPort(),
+				"requestType":  requestType,
+				"status":       response.StatusCode(),
+			}).Errorf("named stats channel returned error status code with message: %s", response.String())
+		}
+	} else {
+		// The request uses deprecated URL parameter and lacks the new parameters.
+		//nolint:staticcheck
+		reqURL = in.GetUrl()
+		response, payload, err = sa.bind9StatsClient.createRequestFromURL(reqURL).getRawJSON("/")
+
+		// Log depending on whether we got an error or an HTTP error. These
+		// messages are logged with URL.
+		if err != nil {
+			log.WithFields(log.Fields{
+				"url": reqURL,
+			}).WithError(err).Error("Failed to forward commands to named over the stats channel")
+		} else if response.IsError() {
+			log.WithFields(log.Fields{
+				"url": reqURL,
+			}).Errorf("named stats channel returned error status code with message: %s", response.String())
+		}
 	}
 
-	// Try to forward the command to named daemon.
-	namedResponse, payload, err := sa.bind9StatsClient.createRequestFromURL(reqURL).getRawJSON("/")
-	if err != nil {
-		log.WithFields(log.Fields{
-			"URL": reqURL,
-		}).Errorf("Failed to forward commands to named over the stats channel: %+v", err)
+	// Set the status code and message based on the error or response.
+	switch {
+	case err != nil:
 		innerGrpcResponse.Status.Code = agentapi.Status_ERROR
-		innerGrpcResponse.Status.Message = fmt.Sprintf("Failed to forward commands to named over the stats channel: %s", err.Error())
-		grpcResponse.NamedStatsResponse = innerGrpcResponse
-		return grpcResponse, nil
-	}
-
-	// Communication successful but HTTP error code returned.
-	if namedResponse.IsError() {
-		log.WithFields(log.Fields{
-			"URL":    reqURL,
-			"Status": namedResponse.StatusCode(),
-		}).Errorf("named stats channel returned error status code with message: %s", namedResponse.String())
+		innerGrpcResponse.Status.Message = fmt.Sprintf("failed to forward commands to named over the stats channel: %s", err.Error())
+	case response.IsError():
 		innerGrpcResponse.Status.Code = agentapi.Status_ERROR
-		innerGrpcResponse.Status.Message = fmt.Sprintf("named stats channel returned error status code with message: %s", namedResponse.String())
+		innerGrpcResponse.Status.Message = fmt.Sprintf("named stats channel returned error status code with message: %s", response.String())
+	default:
+		// Everything looks good, so include the body in the response.
+		innerGrpcResponse.Status.Code = agentapi.Status_OK
 	}
-
-	// Everything looks good, so include the body in the response.
 	innerGrpcResponse.Response = string(payload)
-	innerGrpcResponse.Status.Code = agentapi.Status_OK
-	grpcResponse.NamedStatsResponse = innerGrpcResponse
 	return grpcResponse, nil
 }
 
@@ -389,7 +479,7 @@ func (sa *StorkAgent) ForwardToKeaOverHTTP(ctx context.Context, in *agentapi.For
 	reqURL := in.GetUrl()
 	if reqURL == "" {
 		response.Status.Code = agentapi.Status_ERROR
-		response.Status.Message = "Incorrect URL to Kea CA"
+		response.Status.Message = "incorrect URL to Kea CA"
 		return response, nil
 	}
 
@@ -397,13 +487,13 @@ func (sa *StorkAgent) ForwardToKeaOverHTTP(ctx context.Context, in *agentapi.For
 	app := sa.AppMonitor.GetApp(AppTypeKea, AccessPointControl, host, port)
 	if app == nil {
 		response.Status.Code = agentapi.Status_ERROR
-		response.Status.Message = "Cannot find Kea app"
+		response.Status.Message = "cannot find Kea app"
 		return response, nil
 	}
 	keaApp := app.(*KeaApp)
 	if keaApp == nil {
 		response.Status.Code = agentapi.Status_ERROR
-		response.Status.Message = fmt.Sprintf("Incorrect app found: %s instead of Kea", app.GetBaseApp().Type)
+		response.Status.Message = fmt.Sprintf("incorrect app found: %s instead of Kea", app.GetBaseApp().Type)
 		return response, nil
 	}
 
@@ -421,7 +511,7 @@ func (sa *StorkAgent) ForwardToKeaOverHTTP(ctx context.Context, in *agentapi.For
 				"URL": reqURL,
 			}).Errorf("Failed to forward commands to Kea CA: %+v", err)
 			rsp.Status.Code = agentapi.Status_ERROR
-			rsp.Status.Message = fmt.Sprintf("Failed to forward commands to Kea: %s", err.Error())
+			rsp.Status.Message = fmt.Sprintf("failed to forward commands to Kea: %s", err.Error())
 			response.KeaResponses = append(response.KeaResponses, rsp)
 			continue
 		}
@@ -522,7 +612,7 @@ func (sa *StorkAgent) ReceiveZones(req *agentapi.ReceiveZonesReq, server grpc.Se
 		case errors.As(err, &busyError):
 			st := status.New(codes.Unavailable, err.Error())
 			ds, err := st.WithDetails(&errdetails.ErrorInfo{
-				Reason: "ZONE_INVENTORY_BUSY_ERROR",
+				Reason: "ZONE_INVENTORY_BUSY",
 			})
 			if err != nil {
 				return st.Err()
@@ -550,6 +640,89 @@ func (sa *StorkAgent) ReceiveZones(req *agentapi.ReceiveZonesReq, server grpc.Se
 				st := status.New(codes.Aborted, err.Error())
 				return st.Err()
 			}
+		}
+	}
+	return nil
+}
+
+// Generate a streaming response returning DNS zone RRs from a specified agent.
+func (sa *StorkAgent) ReceiveZoneRRs(req *agentapi.ReceiveZoneRRsReq, server grpc.ServerStreamingServer[agentapi.ReceiveZoneRRsRsp]) error {
+	appI := sa.AppMonitor.GetApp(AppTypeBind9, AccessPointControl, req.ControlAddress, req.ControlPort)
+	var inventory *zoneInventory
+	switch app := appI.(type) {
+	case *Bind9App:
+		inventory = app.zoneInventory
+	default:
+		// This is rather an exceptional case, so we don't necessarily need to
+		// include the detailed error message.
+		return status.Error(codes.InvalidArgument, "attempted to receive DNS zone RRs from an unsupported app")
+	}
+	if inventory == nil {
+		// This is also an exceptional case. All DNS servers should have the
+		// zone inventory initialized.
+		return status.New(codes.FailedPrecondition, "attempted to receive DNS zone RRs from an app for which zone inventory was not instantiated").Err()
+	}
+	respChan, err := inventory.requestAXFR(req.ZoneName, req.ViewName)
+	if err != nil {
+		// This error most likely indicates that the zone inventory was unable to
+		// find credentials in the DNS server configuration. This may be due to a
+		// an issue with interpretation of the configuration file or lack of it.
+		return status.Error(codes.Internal, err.Error())
+	}
+	for resp := range respChan {
+		if resp.err != nil {
+			var (
+				notInitedError *zoneInventoryNotInitedError
+				busyError      *zoneInventoryAXFRBusyError
+			)
+			// Some of the errors require special handling so the client can
+			// interpret them and take specific actions (e.g., try later).
+			switch {
+			case errors.As(resp.err, &notInitedError):
+				// The zone inventory was not initialized, so it is unaware of the
+				// configured zones. It may require explicitly initializing the
+				// inventory or restarting the agent.
+				st := status.New(codes.FailedPrecondition, resp.err.Error())
+				ds, err := st.WithDetails(&errdetails.ErrorInfo{
+					Reason: "ZONE_INVENTORY_NOT_INITED",
+				})
+				if err != nil {
+					return st.Err()
+				}
+				return ds.Err()
+			case errors.As(resp.err, &busyError):
+				// The zone inventory is busy populating or loading the zones.
+				// The client may retry later when this work is finished.
+				st := status.New(codes.Unavailable, resp.err.Error())
+				ds, err := st.WithDetails(&errdetails.ErrorInfo{
+					Reason: "ZONE_INVENTORY_BUSY",
+				})
+				if err != nil {
+					return st.Err()
+				}
+				return ds.Err()
+			default:
+				// There was some other error. Most likely something has gone wrong
+				// during the zone transfer. Maybe the connection was lost with the
+				// DNS server.
+				return status.Error(codes.Aborted, resp.err.Error())
+			}
+		}
+		if resp.envelope.Error != nil {
+			// An error occurred during the zone transfer - maybe connection was lost.
+			return status.Error(codes.Aborted, resp.envelope.Error.Error())
+		}
+		var rrs []string
+		for _, rr := range resp.envelope.RR {
+			rrs = append(rrs, rr.String())
+		}
+		// Everything looks good, so send the response.
+		rsp := &agentapi.ReceiveZoneRRsRsp{
+			Rrs: rrs,
+		}
+		err = server.Send(rsp)
+		if err != nil {
+			return status.Error(codes.Aborted, err.Error())
 		}
 	}
 	return nil

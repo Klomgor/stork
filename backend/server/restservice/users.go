@@ -100,6 +100,7 @@ func (r *RestAPI) externalAuthentication(ctx context.Context, params users.Creat
 	groupIDMapping := map[authenticationcallouts.UserGroupID]int{
 		authenticationcallouts.UserGroupIDSuperAdmin: dbmodel.SuperAdminGroupID,
 		authenticationcallouts.UserGroupIDAdmin:      dbmodel.AdminGroupID,
+		authenticationcallouts.UserGroupIDReadOnly:   dbmodel.ReadOnlyGroupID,
 	}
 
 	var groups []*dbmodel.SystemGroup
@@ -200,6 +201,17 @@ func (r *RestAPI) CreateSession(ctx context.Context, params users.CreateSessionP
 
 	rspUser := newRestUser(*systemUser)
 	return users.NewCreateSessionOK().WithPayload(rspUser)
+}
+
+// Attempts to retrieve the user from the session manager.
+func (r *RestAPI) GetSession(ctx context.Context, params users.GetSessionParams) middleware.Responder {
+	ok, user := r.SessionManager.Logged(ctx)
+	if !ok {
+		return users.NewGetSessionNotFound()
+	}
+
+	rspUser := newRestUser(*user)
+	return users.NewGetSessionOK().WithPayload(rspUser)
 }
 
 // Attempts to logout a user from the system.
@@ -461,6 +473,10 @@ func (r *RestAPI) UpdateUser(ctx context.Context, params users.UpdateUserParams)
 		}
 	}
 
+	// TODO: #1814 - Consider a case where a user's privileges were changed. For example,
+	// a user was moved from the admin group to the read-only group. The session could be destroyed for that user,
+	// who would be forced to authenticate again. New privileges would be applied for the new session.
+
 	return users.NewUpdateUserOK()
 }
 
@@ -578,6 +594,43 @@ func (r *RestAPI) UpdateUserPassword(ctx context.Context, params users.UpdateUse
 		log.WithError(err).Errorf("Failed to update password for user ID %d", id)
 		rspErr := models.APIError{
 			Message: storkutil.Ptr("Database error while trying to update user password"),
+		}
+		rsp := users.NewUpdateUserPasswordDefault(http.StatusInternalServerError).WithPayload(&rspErr)
+		return rsp
+	}
+
+	su, err := dbmodel.GetUserByID(r.DB, id)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to fetch user with ID %d from the database", id)
+		log.WithFields(log.Fields{
+			"userID": id,
+		}).WithError(err).Error(msg)
+
+		rspErr := models.APIError{
+			Message: &msg,
+		}
+		rsp := users.NewUpdateUserPasswordDefault(http.StatusInternalServerError).WithPayload(&rspErr)
+		return rsp
+	}
+	if su == nil {
+		msg := fmt.Sprintf("Failed to find user with ID %d in the database", id)
+		log.WithField("userID", id).Error(msg)
+
+		rspErr := models.APIError{
+			Message: &msg,
+		}
+		rsp := users.NewUpdateUserPasswordDefault(http.StatusNotFound).WithPayload(&rspErr)
+		return rsp
+	}
+	err = r.SessionManager.UpdateUser(ctx, su)
+	if err != nil {
+		msg := "Failed to update session data"
+		log.WithFields(log.Fields{
+			"userID": id,
+		}).WithError(err).Error(msg)
+
+		rspErr := models.APIError{
+			Message: &msg,
 		}
 		rsp := users.NewUpdateUserPasswordDefault(http.StatusInternalServerError).WithPayload(&rspErr)
 		return rsp
