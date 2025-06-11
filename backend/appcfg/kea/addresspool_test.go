@@ -115,9 +115,10 @@ func TestAddressPoolGetBoundariesUpperBoundError(t *testing.T) {
 func TestAddressPoolGetParameters(t *testing.T) {
 	pool := Pool{
 		Pool:   "192.0.2.1-192.0.2.254",
-		PoolID: storkutil.Ptr(int64(1234)),
+		PoolID: 1234,
 		ClientClassParameters: ClientClassParameters{
 			ClientClass:               storkutil.Ptr("foo"),
+			ClientClasses:             []string{"baz"},
 			RequireClientClasses:      []string{"foo", "bar"},
 			EvaluateAdditionalClasses: []string{"baz"},
 		},
@@ -126,13 +127,14 @@ func TestAddressPoolGetParameters(t *testing.T) {
 	require.NotNil(t, params)
 	require.NotNil(t, params.ClientClass)
 	require.Equal(t, "foo", *params.ClientClass)
+	require.Len(t, params.ClientClasses, 1)
+	require.Equal(t, "baz", params.ClientClasses[0])
 	require.Len(t, params.RequireClientClasses, 2)
 	require.Equal(t, "foo", params.RequireClientClasses[0])
 	require.Equal(t, "bar", params.RequireClientClasses[1])
 	require.Len(t, params.EvaluateAdditionalClasses, 1)
 	require.Equal(t, "baz", params.EvaluateAdditionalClasses[0])
-	require.NotNil(t, params.PoolID)
-	require.EqualValues(t, 1234, *params.PoolID)
+	require.EqualValues(t, 1234, params.PoolID)
 }
 
 // Test that an empty set of parameters can be retrieved.
@@ -143,7 +145,8 @@ func TestAddressPoolGetNoParameters(t *testing.T) {
 	params := pool.GetPoolParameters()
 	require.NotNil(t, params)
 	require.Nil(t, params.ClientClass)
+	require.Empty(t, params.ClientClasses)
 	require.Empty(t, params.RequireClientClasses)
 	require.Empty(t, params.EvaluateAdditionalClasses)
-	require.Nil(t, params.PoolID)
+	require.Zero(t, params.PoolID)
 }

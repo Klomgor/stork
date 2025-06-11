@@ -2,7 +2,6 @@ package dbmodel
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	keaconfig "isc.org/stork/appcfg/kea"
@@ -220,129 +219,6 @@ func TestPrefixPoolGetDHCPOptions(t *testing.T) {
 	require.Equal(t, dhcpmodel.DHCPv4OptionSpace, options[0].GetSpace())
 }
 
-// Test that two prefix pools have unequal data if their prefixes differ.
-func TestPrefixPoolHasEqualDataPrefix(t *testing.T) {
-	// Arrange
-	first := &PrefixPool{Prefix: "fe80::/64"}
-	second := &PrefixPool{Prefix: "3001::/64"}
-
-	// Act
-	equality := first.HasEqualData(second)
-
-	// Assert
-	require.False(t, equality)
-}
-
-// Test that two prefix pools have unequal data if their delegated lengths differ.
-func TestPrefixPoolHasEqualDataDelegatedLength(t *testing.T) {
-	// Arrange
-	first := &PrefixPool{DelegatedLen: 64}
-	second := &PrefixPool{DelegatedLen: 80}
-
-	// Act
-	equality := first.HasEqualData(second)
-
-	// Assert
-	require.False(t, equality)
-}
-
-// Test that two prefix pools have unequal data if their excluded prefixes differ.
-func TestPrefixPoolHasEqualDataExcludedPrefix(t *testing.T) {
-	// Arrange
-	first := &PrefixPool{ExcludedPrefix: "fe80::/80"}
-	second := &PrefixPool{ExcludedPrefix: "3001::/80"}
-
-	// Act
-	equality := first.HasEqualData(second)
-
-	// Assert
-	require.False(t, equality)
-}
-
-// Test that two prefix pools have equal data if their IDs differ.
-func TestPrefixPoolHasEqualDataID(t *testing.T) {
-	// Arrange
-	first := &PrefixPool{ID: 1}
-	second := &PrefixPool{ID: 2}
-
-	// Act
-	equality := first.HasEqualData(second)
-
-	// Assert
-	require.True(t, equality)
-}
-
-// Test that two prefix pools have equal data if their create timestamps differ.
-func TestPrefixPoolHasEqualDataCreateTimestamp(t *testing.T) {
-	// Arrange
-	first := &PrefixPool{CreatedAt: time.Date(1980, 1, 1, 12, 0o0, 0o0, 0, time.UTC)}
-	second := &PrefixPool{CreatedAt: time.Date(2023, 1, 4, 16, 49, 0o0, 0, time.Local)}
-
-	// Act
-	equality := first.HasEqualData(second)
-
-	// Assert
-	require.True(t, equality)
-}
-
-// Test that two prefix pools have equal data if their subnet IDs differ.
-func TestPrefixPoolHasEqualDataSubnetID(t *testing.T) {
-	// Arrange
-	first := &PrefixPool{LocalSubnetID: 1}
-	second := &PrefixPool{LocalSubnetID: 2}
-
-	// Act
-	equality := first.HasEqualData(second)
-
-	// Assert
-	require.True(t, equality)
-}
-
-// Test that two prefix pools have equal data if their local subnet IDs differ.
-func TestPrefixPoolHasEqualDataSubnet(t *testing.T) {
-	// Arrange
-	first := &PrefixPool{LocalSubnet: &LocalSubnet{LocalSubnetID: 14}}
-	second := &PrefixPool{LocalSubnet: &LocalSubnet{LocalSubnetID: 15}}
-
-	// Act
-	equality := first.HasEqualData(second)
-
-	// Assert
-	require.True(t, equality)
-}
-
-// Test that two prefix pools have equal data if they are the same.
-func TestPrefixPoolHasEqualDataTheSame(t *testing.T) {
-	// Arrange
-	first := &PrefixPool{
-		ID:             42,
-		CreatedAt:      time.Time{},
-		Prefix:         "fe80::/64",
-		DelegatedLen:   80,
-		LocalSubnetID:  24,
-		LocalSubnet:    &LocalSubnet{},
-		ExcludedPrefix: "fe80::/80",
-	}
-
-	second := &PrefixPool{
-		ID:             42,
-		CreatedAt:      time.Time{},
-		Prefix:         "fe80::/64",
-		DelegatedLen:   80,
-		LocalSubnetID:  24,
-		LocalSubnet:    &LocalSubnet{},
-		ExcludedPrefix: "fe80::/80",
-	}
-
-	// Act
-	equalityFirstSecond := first.HasEqualData(second)
-	equalitySecondFirst := second.HasEqualData(first)
-
-	// Assert
-	require.True(t, equalityFirstSecond)
-	require.True(t, equalitySecondFirst)
-}
-
 // Test the implementation of the dhcpmodel.AddressPoolAccessor interface
 // (GetLowerBound() and GetUpperBound() functions).
 func TestAddressPoolGetBounds(t *testing.T) {
@@ -391,110 +267,146 @@ func TestAddressPoolGetDHCPOptions(t *testing.T) {
 	require.Equal(t, dhcpmodel.DHCPv6OptionSpace, options[0].GetSpace())
 }
 
-// Test that two address pools have equal data if their IDs differ.
-func TestAddressPoolHasEqualDataID(t *testing.T) {
-	// Arrange
-	first := &AddressPool{ID: 1}
-	second := &AddressPool{ID: 2}
+// Test the IsIPv6 function recognizes IPv6 address pools.
+func TestAddressPoolIsIPv6(t *testing.T) {
+	t.Run("IPv4", func(t *testing.T) {
+		v4 := AddressPool{
+			LowerBound: "192.0.2.1",
+			UpperBound: "192.0.2.10",
+		}
+		require.False(t, v4.IsIPv6())
+	})
 
-	// Act
-	equality := first.HasEqualData(second)
-
-	// Assert
-	require.True(t, equality)
+	t.Run("IPv6", func(t *testing.T) {
+		v6 := AddressPool{
+			LowerBound: "2001:db8:1::cafe",
+			UpperBound: "2001:db8:1::ffff",
+		}
+		require.True(t, v6.IsIPv6())
+	})
 }
 
-// Test that two address pools have equal data if their create timestamps differ.
-func TestAddressPoolHasEqualDataCreateTimestamp(t *testing.T) {
+// Test that the address pool statistics are updated correctly.
+func TestAddressPoolUpdateStats(t *testing.T) {
 	// Arrange
-	first := &AddressPool{CreatedAt: time.Date(1980, 1, 1, 12, 0o0, 0o0, 0, time.UTC)}
-	second := &AddressPool{CreatedAt: time.Date(2023, 1, 4, 16, 49, 0o0, 0, time.Local)}
+	db, _, teardown := dbtest.SetupDatabaseTestCase(t)
+	defer teardown()
 
-	// Act
-	equality := first.HasEqualData(second)
-
-	// Assert
-	require.True(t, equality)
-}
-
-// Test that two address pools have unequal data if their lower bounds differ.
-func TestAddressPoolHasEqualDataLowerBound(t *testing.T) {
-	// Arrange
-	first := &AddressPool{LowerBound: "10.0.0.1"}
-	second := &AddressPool{LowerBound: "192.168.0.1"}
-
-	// Act
-	equality := first.HasEqualData(second)
-
-	// Assert
-	require.False(t, equality)
-}
-
-// Test that two address pools have equal data if their upper bounds differ.
-func TestAddressPoolHasEqualDataUpperBound(t *testing.T) {
-	// Arrange
-	first := &AddressPool{UpperBound: "10.0.0.42"}
-	second := &AddressPool{UpperBound: "192.168.0.42"}
-
-	// Act
-	equality := first.HasEqualData(second)
-
-	// Assert
-	require.False(t, equality)
-}
-
-// Test that two address pools have equal data if their subnet IDs differ.
-func TestAddressPoolHasEqualDataSubnetID(t *testing.T) {
-	// Arrange
-	first := &AddressPool{LocalSubnetID: 1}
-	second := &AddressPool{LocalSubnetID: 2}
-
-	// Act
-	equality := first.HasEqualData(second)
-
-	// Assert
-	require.True(t, equality)
-}
-
-// Test that two address pools have equal data if their IDs differ.
-func TestAddressPoolHasEqualDataSubnetIDs(t *testing.T) {
-	// Arrange
-	first := &AddressPool{LocalSubnet: &LocalSubnet{ID: 14}}
-	second := &AddressPool{LocalSubnet: &LocalSubnet{ID: 15}}
-
-	// Act
-	equality := first.HasEqualData(second)
-
-	// Assert
-	require.True(t, equality)
-}
-
-// Test that two address pools have equal data of they are the same.
-func TestAddressPoolHasEqualDataTheSame(t *testing.T) {
-	// Arrange
-	first := &AddressPool{
-		ID:            42,
-		CreatedAt:     time.Time{},
-		LowerBound:    "10.0.0.1",
-		UpperBound:    "10.0.0.10",
-		LocalSubnetID: 24,
-		LocalSubnet:   &LocalSubnet{},
+	apps := addTestSubnetApps(t, db)
+	subnet := Subnet{
+		Prefix: "192.0.2.0/24",
+		LocalSubnets: []*LocalSubnet{
+			{
+				DaemonID: apps[0].Daemons[0].ID,
+			},
+		},
 	}
+	err := AddSubnet(db, &subnet)
+	require.NoError(t, err)
+	require.NotZero(t, subnet.ID)
 
-	second := &AddressPool{
-		ID:            42,
-		CreatedAt:     time.Time{},
-		LowerBound:    "10.0.0.1",
-		UpperBound:    "10.0.0.10",
-		LocalSubnetID: 24,
-		LocalSubnet:   &LocalSubnet{},
+	err = AddLocalSubnets(db, &subnet)
+	require.NoError(t, err)
+
+	pool := AddressPool{
+		LowerBound: "192.0.2.10",
+		UpperBound: "192.0.2.20",
+		LocalSubnet: &LocalSubnet{
+			ID: subnet.LocalSubnets[0].ID,
+		},
 	}
+	err = AddAddressPool(db, &pool)
+	require.NoError(t, err)
 
 	// Act
-	equalityFirstSecond := first.HasEqualData(second)
-	equalitySecondFirst := second.HasEqualData(first)
+	err = pool.UpdateStats(db, SubnetStats{
+		"foo":                uint64(42),
+		"total-addresses":    uint64(100),
+		"assigned-addresses": uint64(33),
+	})
 
 	// Assert
-	require.True(t, equalityFirstSecond)
-	require.True(t, equalitySecondFirst)
+	require.NoError(t, err)
+	subnetDB, err := GetSubnet(db, subnet.ID)
+	require.NoError(t, err)
+	poolDB := subnetDB.LocalSubnets[0].AddressPools[0]
+
+	require.Len(t, poolDB.Stats, 3)
+	require.Equal(t, uint64(42), poolDB.Stats["foo"])
+	require.NotZero(t, poolDB.StatsCollectedAt)
+	require.Equal(t, Utilization(0.33), poolDB.Utilization)
+}
+
+// Test that the prefix pool statistics are updated correctly.
+func TestPrefixPoolUpdateStats(t *testing.T) {
+	// Arrange
+	db, _, teardown := dbtest.SetupDatabaseTestCase(t)
+	defer teardown()
+
+	apps := addTestSubnetApps(t, db)
+	subnet := Subnet{
+		Prefix: "fe80::/64",
+		LocalSubnets: []*LocalSubnet{
+			{
+				DaemonID: apps[0].Daemons[0].ID,
+			},
+		},
+	}
+	err := AddSubnet(db, &subnet)
+	require.NoError(t, err)
+	require.NotZero(t, subnet.ID)
+
+	err = AddLocalSubnets(db, &subnet)
+	require.NoError(t, err)
+
+	pdPool := PrefixPool{
+		Prefix:       "fe80::/80",
+		DelegatedLen: 96,
+		LocalSubnet: &LocalSubnet{
+			ID: subnet.LocalSubnets[0].ID,
+		},
+	}
+	err = AddPrefixPool(db, &pdPool)
+	require.NoError(t, err)
+
+	addressPool := AddressPool{
+		LowerBound: "fe80::1",
+		UpperBound: "fe80::ffff",
+		LocalSubnet: &LocalSubnet{
+			ID: subnet.LocalSubnets[0].ID,
+		},
+	}
+	err = AddAddressPool(db, &addressPool)
+	require.NoError(t, err)
+
+	// Act
+	errPD := pdPool.UpdateStats(db, SubnetStats{
+		"foo":          uint64(42),
+		"total-pds":    uint64(100),
+		"assigned-pds": uint64(33),
+	})
+
+	errAddress := addressPool.UpdateStats(db, SubnetStats{
+		"foo":          uint64(42),
+		"total-nas":    uint64(200),
+		"assigned-nas": uint64(50),
+	})
+
+	// Assert
+	require.NoError(t, errPD)
+	require.NoError(t, errAddress)
+	subnetDB, err := GetSubnet(db, subnet.ID)
+	require.NoError(t, err)
+	pdPoolDB := subnetDB.LocalSubnets[0].PrefixPools[0]
+	addressPoolDB := subnetDB.LocalSubnets[0].AddressPools[0]
+
+	require.Len(t, pdPoolDB.Stats, 3)
+	require.Equal(t, uint64(42), pdPoolDB.Stats["foo"])
+	require.NotZero(t, pdPoolDB.StatsCollectedAt)
+	require.Equal(t, Utilization(0.33), pdPoolDB.Utilization)
+
+	require.Len(t, addressPoolDB.Stats, 3)
+	require.Equal(t, uint64(42), addressPoolDB.Stats["foo"])
+	require.NotZero(t, addressPoolDB.StatsCollectedAt)
+	require.Equal(t, Utilization(0.25), addressPoolDB.Utilization)
 }

@@ -115,13 +115,27 @@ export class AppComponent implements OnInit, OnDestroy {
                         icon: 'fa fa-network-wired',
                         routerLink: '/dhcp/shared-networks',
                     },
+                    {
+                        label: 'Config migrations',
+                        id: 'config-migrations',
+                        routerLink: '/config-migrations',
+                        icon: 'fa fa-suitcase',
+                    },
                 ],
             },
             {
                 label: 'DNS',
                 id: 'dns',
                 visible: false,
-                items: [{ label: 'Zones', id: 'zones', icon: 'pi pi-sitemap', routerLink: '/dns/zones' }],
+                items: [
+                    {
+                        label: 'Dashboard',
+                        id: 'dns-dashboard',
+                        icon: 'fa fa-tachometer-alt',
+                        routerLink: '/dashboard',
+                    },
+                    { label: 'Zones', id: 'zones', icon: 'pi pi-sitemap', routerLink: '/dns/zones' },
+                ],
             },
             {
                 label: 'Services',
@@ -294,7 +308,7 @@ export class AppComponent implements OnInit, OnDestroy {
         )
 
         this.subscriptions.add(
-            this.auth.currentUser.subscribe((x) => {
+            this.auth.currentUser$.subscribe((x) => {
                 this.currentUser = x
                 const menuItem = this.getMenuItem('Users')
                 if (this.auth.superAdmin()) {

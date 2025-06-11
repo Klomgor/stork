@@ -24,15 +24,14 @@ Stork services. It contains:
 - PostgreSQL Database
 - Prometheus & Grafana
 - OpenLDAP server
+- Stork Agent with Former Kea Premium Features-1
+- Stork Agent with Former Kea Premium Features-2
 
-The demo setup can optionally launch additional containers:
+.. note::
 
-- Stork Agent with Kea Premium Features-1
-- Stork Agent with Kea Premium Features-2
-
-In the sections below, we explain how to start the demo setup
-and how to launch the containers with additional Kea features, provided by hooks.
-These hooks are required to manage hosts, subnets, and shared networks from within Stork.
+   Kea premium features have been moved to open source in Kea 2.7.7 release.
+   Running the demo with these features no longer requires specifying the
+   Cloudsmith access token.
 
 The demo launch instructions and its features are also described on the
 `ISC GitLab Wiki <https://gitlab.isc.org/isc-projects/stork/-/wikis/Demo>`_.
@@ -80,20 +79,6 @@ the Ruby toolkit:
 .. code-block:: console
 
    $ ./stork-demo.sh
-
-Additional Features
-~~~~~~~~~~~~~~~~~~~
-
-It is possible to run the demo with additional features enabled in the Kea
-app; this requires the demo to be started with an access token for the Kea premium
-and/or subscriber hook repositories. Access tokens are provided to ISC's paid support customers;
-format-specific setup instructions can be found on
-https://kb.isc.org/docs/isc-kea-packages#private-repositories-for-commercially-licensed-hooks. ISC paid support
-customers should feel free to open a ticket for assistance if needed.
-
-.. code-block:: console
-
-   $ rake demo:up CS_REPO_ACCESS_TOKEN=<access token>
 
 Detached Mode
 ~~~~~~~~~~~~~
@@ -179,7 +164,7 @@ openldap
    (https://www.openldap.org/). It is preconfigured with a set of users:
    ``admin`` (password: ``admin``), ``user1``, ``user2``, ``user3`` (passwords:
    ``password1``, ``password2``,  ``password3``) and groups: ``stork-admins``,
-   ``stork-super-admins``.
+   ``stork-super-admins``, ``stork-read-only-users``.
 
 There is also a supporting container:
 

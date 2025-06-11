@@ -6,6 +6,18 @@ import (
 	storkutil "isc.org/stork/util"
 )
 
+// The operation-target parameter selects the host data source. The commands
+// may process data from the server configuration (i.e., memory operation
+// target), a database (database target), or both (all sources).
+type HostCmdsOperationTarget string
+
+const (
+	HostCmdsOperationTargetMemory   HostCmdsOperationTarget = "memory"
+	HostCmdsOperationTargetDatabase HostCmdsOperationTarget = "database"
+	HostCmdsOperationTargetAll      HostCmdsOperationTarget = "all"
+	HostCmdsOperationTargetDefault  HostCmdsOperationTarget = ""
+)
+
 // Interface of a host convertible to a Kea host reservation.
 type HostAccessor interface {
 	GetHostIdentifiers() []struct {
@@ -49,9 +61,10 @@ type HostCmdsReservation struct {
 // Represents deleted host reservation. It includes the fields required by
 // Kea to find the reservation and delete it.
 type HostCmdsDeletedReservation struct {
-	IdentifierType string `json:"identifier-type,omitempty"`
-	Identifier     string `json:"identifier,omitempty"`
-	SubnetID       int64  `json:"subnet-id"`
+	IdentifierType  string                  `json:"identifier-type,omitempty"`
+	Identifier      string                  `json:"identifier,omitempty"`
+	SubnetID        int64                   `json:"subnet-id"`
+	OperationTarget HostCmdsOperationTarget `json:"operation-target,omitempty"`
 }
 
 // A structure comprising host reservation modes at the particular
@@ -144,7 +157,7 @@ func CreateHostCmdsReservation(daemonID int64, lookup DHCPOptionDefinitionLookup
 // Converts a host representation in Stork to a structure accepted by the
 // reservation-del command in Kea. This structure comprises a DHCP identifier
 // type, DHCP identifier value and a subnet ID.
-func CreateHostCmdsDeletedReservation(daemonID int64, host HostAccessor) (reservation *HostCmdsDeletedReservation, err error) {
+func CreateHostCmdsDeletedReservation(daemonID int64, host HostAccessor, operationTarget HostCmdsOperationTarget) (reservation *HostCmdsDeletedReservation, err error) {
 	var subnetID int64
 	if subnetID, err = host.GetSubnetID(daemonID); err != nil {
 		return
@@ -156,9 +169,10 @@ func CreateHostCmdsDeletedReservation(daemonID int64, host HostAccessor) (reserv
 	}
 	// Create the reservation using the first found identifier.
 	reservation = &HostCmdsDeletedReservation{
-		IdentifierType: ids[0].Type,
-		Identifier:     storkutil.BytesToHex(ids[0].Value),
-		SubnetID:       subnetID,
+		IdentifierType:  ids[0].Type,
+		Identifier:      storkutil.BytesToHex(ids[0].Value),
+		SubnetID:        subnetID,
+		OperationTarget: operationTarget,
 	}
 	return
 }

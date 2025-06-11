@@ -2,12 +2,13 @@ import { Component, OnDestroy, OnInit, ViewChild } from '@angular/core'
 import { PrefilteredTable } from '../table'
 import { DHCPService, Host, LocalHost } from '../backend'
 import { Table, TableLazyLoadEvent } from 'primeng/table'
-import { ActivatedRoute } from '@angular/router'
+import { ActivatedRoute, Router } from '@angular/router'
 import { Location } from '@angular/common'
-import { MessageService } from 'primeng/api'
-import { getErrorMessage } from '../utils'
+import { ConfirmationService, MessageService } from 'primeng/api'
+import { getErrorMessage, uncamelCase } from '../utils'
 import { hasDifferentLocalHostData } from '../hosts'
-import { lastValueFrom } from 'rxjs'
+import { last, lastValueFrom } from 'rxjs'
+import { FilterMetadata } from 'primeng/api/filtermetadata'
 
 /**
  * Specifies the filter parameters for fetching hosts that may be specified
@@ -41,13 +42,12 @@ export class HostsTableComponent extends PrefilteredTable<HostsFilter, Host> imp
      * Note that it doesn't have to contain hosts prefilterKey, which is 'appId'.
      * prefilterKey by default is considered as a primary queryParam filter key.
      */
-    queryParamNumericKeys: (keyof HostsFilter)[] = []
+    queryParamNumericKeys: (keyof HostsFilter)[] = ['subnetId', 'keaSubnetId']
 
     /**
      * Array of all boolean keys that are supported when filtering hosts via URL queryParams.
-     * Currently, no boolean key is supported in queryParams filtering.
      */
-    queryParamBooleanKeys: (keyof HostsFilter)[] = []
+    queryParamBooleanKeys: (keyof HostsFilter)[] = ['isGlobal', 'conflict']
 
     /**
      * Array of all numeric keys that can be used to filter hosts.
@@ -81,10 +81,12 @@ export class HostsTableComponent extends PrefilteredTable<HostsFilter, Host> imp
     @ViewChild('hostsTable') table: Table
 
     constructor(
-        private route: ActivatedRoute,
+        route: ActivatedRoute,
+        private router: Router,
         private dhcpApi: DHCPService,
         private messageService: MessageService,
-        private location: Location
+        location: Location,
+        private confirmationService: ConfirmationService
     ) {
         super(route, location)
     }
@@ -136,6 +138,12 @@ export class HostsTableComponent extends PrefilteredTable<HostsFilter, Host> imp
      * It is indexed by host ID.
      */
     localHostsGroupedByApp: Record<number, LocalHost[][]>
+
+    /**
+     * This flag states whether user has privileges to start the migration.
+     * This value comes from ManagedAccess directive which is called in the HTML template.
+     */
+    canStartMigration: boolean = false
 
     /**
      * Returns all currently displayed host reservations.
@@ -212,5 +220,68 @@ export class HostsTableComponent extends PrefilteredTable<HostsFilter, Host> imp
      */
     ngOnInit(): void {
         super.onInit()
+    }
+
+    /**
+     * Displays a modal dialog with the details of the host migration.
+     * The dialog displays the host filter and the total number of migrated
+     * hosts. There is also warning that the related daemons will be locked
+     * during the migration. User can confirm or abort the migration.
+     */
+    migrateToDatabaseAsk(): void {
+        if (!this.canStartMigration) {
+            return
+        }
+
+        // Display a confirmation dialog.
+        this.confirmationService.confirm({
+            key: 'migrationToDatabaseDialog',
+            header: 'Migrate host reservations to database',
+            icon: 'pi pi-exclamation-triangle',
+            accept: () => {
+                // User confirmed the migration.
+                this.dhcpApi
+                    .startHostsMigration(
+                        this.prefilterValue ?? this.getTableFilterValue('appId'),
+                        this.getTableFilterValue('subnetId'),
+                        this.getTableFilterValue('keaSubnetId'),
+                        this.getTableFilterValue('text'),
+                        this.getTableFilterValue('isGlobal')
+                    )
+                    .pipe(last())
+                    .subscribe({
+                        next: (result) => {
+                            this.router.navigate(['/config-migrations/' + result.id])
+                        },
+                        error: (error) => {
+                            this.messageService.add({
+                                severity: 'error',
+                                summary: 'Cannot migrate host reservations',
+                                detail: getErrorMessage(error),
+                            })
+                        },
+                    })
+            },
+        })
+    }
+
+    /**
+     * Returns entries of the table filter that will be used to migrate the
+     * hosts. The keys are uncamelized and capitalized. The conflict key is
+     * always false.
+     */
+    get migrationFilterEntries() {
+        const filters = { ...this.table?.filters, ...{ conflict: { value: false } } }
+        return Object.entries(filters)
+            .filter(([, filterMetadata]) => (<FilterMetadata>filterMetadata).value != null)
+            .map(([key, filterMetadata]) => [uncamelCase(key), filterMetadata.value.toString()])
+            .sort(([key1], [key2]) => key1.localeCompare(key2))
+    }
+
+    /**
+     * Returns true when there is filtering by hosts that are in conflict enabled; false otherwise.
+     */
+    isFilteredByConflict(): boolean {
+        return (<FilterMetadata>this.table?.filters['conflict'])?.value === true
     }
 }

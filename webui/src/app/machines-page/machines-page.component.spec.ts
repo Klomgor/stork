@@ -44,6 +44,8 @@ import { PluralizePipe } from '../pipes/pluralize.pipe'
 import { TagModule } from 'primeng/tag'
 import createSpyObj = jasmine.createSpyObj
 import objectContaining = jasmine.objectContaining
+import { ManagedAccessDirective } from '../managed-access.directive'
+import { AuthService } from '../auth.service'
 
 describe('MachinesPageComponent', () => {
     let component: MachinesPageComponent
@@ -67,6 +69,7 @@ describe('MachinesPageComponent', () => {
     >
     let getMachinesServerTokenSpy: jasmine.Spy<() => Observable<GetMachinesServerToken200Response>>
     let msgSrvAddSpy: jasmine.Spy<(message: Message) => void>
+    let authService: AuthService
 
     // prepare responses for api calls
     const getUnauthorizedMachinesResp = {
@@ -160,6 +163,7 @@ describe('MachinesPageComponent', () => {
                 PanelModule,
                 TriStateCheckboxModule,
                 TagModule,
+                ManagedAccessDirective,
             ],
             providers: [
                 MessageService,
@@ -185,6 +189,8 @@ describe('MachinesPageComponent', () => {
         routerEventSubject = new BehaviorSubject(new NavigationEnd(1, 'machines', 'machines/all'))
         spyOnProperty(router, 'events').and.returnValue(routerEventSubject)
         msgSrvAddSpy = spyOn(msgService, 'add')
+        authService = fixture.debugElement.injector.get(AuthService)
+        spyOn(authService, 'superAdmin').and.returnValue(true)
 
         fixture.detectChanges()
         unauthorizedMachinesCountBadge = fixture.nativeElement.querySelector('div.p-selectbutton span.p-badge')

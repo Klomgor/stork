@@ -11,6 +11,8 @@
         type="button"
         routerLink="/dhcp/shared-networks/new"
         pButton
+        appAccessEntity="shared-network"
+        appAccessType="create"
     ></a>
     <p-button
         label="Refresh List"
@@ -41,9 +43,17 @@
     styleClass="p-datatable-striped"
 >
     <ng-template pTemplate="caption">
-        <p-panel [toggleable]="true">
+        <p-panel #filtersPanel [toggleable]="true" styleClass="p-panel-icons-hidden">
             <ng-template pTemplate="header">
                 <div class="flex align-items-center gap-2">
+                    <p-button
+                        type="button"
+                        [text]="true"
+                        [rounded]="true"
+                        [plain]="true"
+                        [icon]="!filtersPanel.collapsed ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+                        (click)="filtersPanel.toggle($event)"
+                    />
                     <i class="pi pi-filter"></i>
                     <span class="font-bold">Filters</span>
                     <p-tag
@@ -89,13 +99,14 @@
                 ></button>
                 <div class="flex-auto"></div>
                 <p-columnFilter field="appId" matchMode="equals" [showMenu]="false" [showClearButton]="!hasPrefilter()">
-                    <ng-template pTemplate="filter" let-value let-filter="filterCallback">
+                    <ng-template pTemplate="filter" let-value let-filterMetadata="filterConstraint">
                         <span class="p-float-label">
                             <p-inputNumber
                                 inputId="app-id"
                                 mode="decimal"
                                 [useGrouping]="false"
-                                (onInput)="filter($event.value)"
+                                min="1"
+                                (onInput)="filterTable($event.value === 0 ? 1 : $event.value, filterMetadata)"
                                 [ngModel]="value"
                                 [disabled]="hasPrefilter()"
                             ></p-inputNumber>
@@ -104,7 +115,7 @@
                     </ng-template>
                 </p-columnFilter>
                 <p-columnFilter field="dhcpVersion" matchMode="equals" [showMenu]="false">
-                    <ng-template pTemplate="filter" let-value let-filter="filterCallback">
+                    <ng-template pTemplate="filter" let-value let-filterMetadata="filterConstraint">
                         <span class="p-float-label">
                             <p-dropdown
                                 inputId="dhcp-version"
@@ -114,7 +125,7 @@
                                 ]"
                                 optionLabel="label"
                                 optionValue="value"
-                                (onChange)="filter($event.value)"
+                                (onChange)="filterTable($event.value, filterMetadata)"
                                 [ngModel]="value"
                                 styleClass="w-10rem"
                             ></p-dropdown>
@@ -123,13 +134,13 @@
                     </ng-template>
                 </p-columnFilter>
                 <p-columnFilter field="text" matchMode="contains" [showMenu]="false">
-                    <ng-template pTemplate="filter" let-value let-filter="filterCallback">
+                    <ng-template pTemplate="filter" let-value let-filterMetadata="filterConstraint">
                         <span class="p-input-icon-left">
                             <i class="pi pi-search"></i>
                             <input
                                 pInputText
                                 type="text"
-                                (input)="filter($event.target.value)"
+                                (input)="filterTable($event.target.value, filterMetadata)"
                                 [ngModel]="value"
                                 placeholder="Search shared networks"
                             />
@@ -170,7 +181,7 @@
                 <app-human-count [value]="getAssignedAddresses(net)"></app-human-count>
             </td>
             <td>
-                {{ net.addrUtilization ?? '0' }} %
+                {{ net.addrUtilization ?? 0 | number: '1.0-1' }}%
                 <i
                     *ngIf="net.addrUtilization > 80 && net.addrUtilization <= 90"
                     class="pi pi-exclamation-triangle text-2xl vertical-align-text-top text-orange-400"
@@ -188,7 +199,7 @@
                     <app-human-count [value]="getAssignedDelegatedPrefixes(net)"></app-human-count>
                 </td>
                 <td>
-                    {{ net.pdUtilization ?? '0' }} %
+                    {{ net.pdUtilization ?? 0 | number: '1.0-1' }} %
                     <i
                         *ngIf="net.pdUtilization > 80 && net.pdUtilization <= 90"
                         class="pi pi-exclamation-triangle text-2xl vertical-align-text-top text-orange-400"

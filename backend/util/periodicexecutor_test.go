@@ -175,3 +175,67 @@ func TestGetName(t *testing.T) {
 	// Assert
 	require.EqualValues(t, "foobar", name)
 }
+
+// Test that the caller of the pause function is blocked until the executor
+// finishes the current iteration.
+func TestWaitForStandbyInPause(t *testing.T) {
+	// Emits a value when the iteration starts. It notifies that the executor
+	// goroutine reached the executor function.
+	iterationStarted := make(chan struct{})
+	defer close(iterationStarted)
+	// Emits a value when the iteration finishes. It releases the blocked
+	// executor goroutine.
+	iterationFinished := make(chan struct{})
+	defer close(iterationFinished)
+	// Emits a value when the test goroutine runs, just before waiting for the
+	// executor standby.
+	waitingStarted := make(chan struct{})
+	defer close(waitingStarted)
+	// Releases when the test goroutine finishes waiting.
+	var waitingFinished sync.WaitGroup
+
+	// It runs the executor loop.
+	executor, _ := NewPeriodicExecutor(
+		"foobar",
+		func() error {
+			iterationStarted <- struct{}{}
+			<-iterationFinished
+			return nil
+		},
+		func() (time.Duration, error) { return 1 * time.Millisecond, nil },
+	)
+	defer executor.Shutdown()
+
+	// Wait until the executor goroutine starts the iteration and call the
+	// handler function.
+	<-iterationStarted
+
+	// Start the test goroutine that waits for the executor standby.
+	waitingFinished.Add(1)
+	go func() {
+		// Notify the test goroutine is running.
+		waitingStarted <- struct{}{}
+		// Block until the executor finishes the current iteration.
+		executor.Pause()
+		// Notify the test goroutine is finished.
+		waitingFinished.Done()
+	}()
+
+	// Wait until the test goroutine starts waiting.
+	<-waitingStarted
+
+	// Check that the test goroutine is blocked.
+	require.Never(t, func() bool {
+		// It should block forever.
+		waitingFinished.Wait()
+		return true
+	}, 500*time.Millisecond, 100*time.Millisecond)
+
+	// Release the executor goroutine.
+	iterationFinished <- struct{}{}
+	// Check that the test goroutine is released. It means it stopped waiting.
+	require.Eventually(t, func() bool {
+		waitingFinished.Wait()
+		return true
+	}, 500*time.Millisecond, 100*time.Millisecond)
+}

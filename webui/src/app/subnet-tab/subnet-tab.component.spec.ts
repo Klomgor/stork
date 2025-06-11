@@ -40,6 +40,10 @@ import { PositivePipe } from '../pipes/positive.pipe'
 import { JsonTreeRootComponent } from '../json-tree-root/json-tree-root.component'
 import { JsonTreeComponent } from '../json-tree/json-tree.component'
 import { provideHttpClient, withInterceptorsFromDi } from '@angular/common/http'
+import { ManagedAccessDirective } from '../managed-access.directive'
+import { AuthService } from '../auth.service'
+import { UtilizationBarComponent } from '../utilization-bar/utilization-bar.component'
+import { PoolBarsComponent } from '../pool-bars/pool-bars.component'
 
 describe('SubnetTabComponent', () => {
     let component: SubnetTabComponent
@@ -47,6 +51,7 @@ describe('SubnetTabComponent', () => {
     let dhcpApi: DHCPService
     let msgService: MessageService
     let confirmService: ConfirmationService
+    let authService: AuthService
 
     beforeEach(async () => {
         await TestBed.configureTestingModule({
@@ -70,6 +75,8 @@ describe('SubnetTabComponent', () => {
                 UtilizationStatsChartsComponent,
                 JsonTreeRootComponent,
                 JsonTreeComponent,
+                UtilizationBarComponent,
+                PoolBarsComponent,
             ],
             imports: [
                 ButtonModule,
@@ -87,6 +94,7 @@ describe('SubnetTabComponent', () => {
                 ToastModule,
                 TooltipModule,
                 TreeModule,
+                ManagedAccessDirective,
             ],
             providers: [
                 ConfirmationService,
@@ -101,6 +109,8 @@ describe('SubnetTabComponent', () => {
         dhcpApi = fixture.debugElement.injector.get(DHCPService)
         confirmService = fixture.debugElement.injector.get(ConfirmationService)
         msgService = fixture.debugElement.injector.get(MessageService)
+        authService = fixture.debugElement.injector.get(AuthService)
+        spyOn(authService, 'superAdmin').and.returnValue(true)
         fixture.detectChanges()
     })
 
@@ -451,11 +461,11 @@ describe('SubnetTabComponent', () => {
                     ],
                     prefixDelegationPools: [
                         {
-                            prefix: '3000::',
+                            prefix: '3000::/64',
                             delegatedLength: 80,
                         },
                         {
-                            prefix: '3000:1::',
+                            prefix: '3000:1::/64',
                             delegatedLength: 96,
                         },
                     ],

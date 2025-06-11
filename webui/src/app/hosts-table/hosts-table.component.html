@@ -1,9 +1,56 @@
+<div appAccessEntity="migrations-hosts" appAccessType="create" [appHideIfNoAccess]="true">
+    <p-confirmDialog key="migrationToDatabaseDialog">
+        <ng-template pTemplate="message">
+            <div class="block ml-3 max-w-40rem message">
+                <p>Are you sure you want to migrate host reservations to the database?</p>
+                <p>
+                    You are about to migrate host reservations defined in a configuration file to a database ("host
+                    backend"). After the migration, hosts will be deleted from your configuration file and will be kept
+                    in the database only. All the hosts selected by the current filter (including those on other pages,
+                    if there are more hosts than fit on a single page) will be considered. Those that can't be migrated
+                    (e.g. because they're already in a database or are in a conflicted state) will be skipped. The
+                    migration is not instantaneous and will take some time.
+                </p>
+                <p>
+                    The number of hosts to be migrated is <strong>{{ totalRecords }}</strong
+                    >. They are selected by the following filter:
+                </p>
+                <div class="w-full">
+                    <div *ngFor="let entry of migrationFilterEntries" class="flex flex-row gap-2">
+                        <span class="font-bold text-right flex-1">{{ entry[0] }}</span>
+                        <span class="flex-1">{{ entry[1] }}</span>
+                    </div>
+                </div>
+
+                <p>
+                    This operation will lock the related daemons for modifications. During the migration, the Stork
+                    server will not synchronize the Kea data (i.e., the Kea configuration, subnets, shared networks,
+                    host reservations).
+                </p>
+                <p>The migration can be canceled at any time.</p>
+            </div>
+        </ng-template>
+    </p-confirmDialog>
+</div>
+
 <div class="mb-2 flex gap-2 flex-wrap justify-content-end">
     <div class="flex align-items-center flex-auto">
         <div *ngIf="filterTextFormatErrors?.length > 0">
             <small *ngFor="let err of filterTextFormatErrors" class="p-error block">{{ err }}</small>
         </div>
     </div>
+
+    <p-button
+        label="Migrate to Database"
+        icon="pi pi-database"
+        [disabled]="!totalRecords || isFilteredByConflict() || !canStartMigration"
+        styleClass="block p-button-primary no-underline"
+        (onClick)="migrateToDatabaseAsk()"
+        appAccessEntity="migrations-hosts"
+        appAccessType="create"
+        (appHasAccess)="canStartMigration = $event"
+    ></p-button>
+
     <a
         label="New Host"
         icon="pi pi-plus"
@@ -11,6 +58,8 @@
         type="button"
         routerLink="/dhcp/hosts/new"
         pButton
+        appAccessEntity="host-reservation"
+        appAccessType="create"
     ></a>
     <p-button
         label="Refresh List"
@@ -41,9 +90,17 @@
     styleClass="p-datatable-striped"
 >
     <ng-template pTemplate="caption">
-        <p-panel [toggleable]="true">
+        <p-panel #filtersPanel [toggleable]="true" styleClass="p-panel-icons-hidden">
             <ng-template pTemplate="header">
                 <div class="flex align-items-center gap-2">
+                    <p-button
+                        type="button"
+                        [text]="true"
+                        [rounded]="true"
+                        [plain]="true"
+                        [icon]="!filtersPanel.collapsed ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+                        (click)="filtersPanel.toggle($event)"
+                    />
                     <i class="pi pi-filter"></i>
                     <span class="font-bold">Filters</span>
                     <p-tag
@@ -116,13 +173,14 @@
                 ></button>
                 <div class="flex-auto"></div>
                 <p-columnFilter field="appId" matchMode="equals" [showMenu]="false" [showClearButton]="!hasPrefilter()">
-                    <ng-template pTemplate="filter" let-value let-filter="filterCallback">
+                    <ng-template pTemplate="filter" let-value let-filterMetadata="filterConstraint">
                         <span class="p-float-label">
                             <p-inputNumber
                                 inputId="app-id"
                                 mode="decimal"
                                 [useGrouping]="false"
-                                (onInput)="filter($event.value)"
+                                min="1"
+                                (onInput)="filterTable($event.value === 0 ? 1 : $event.value, filterMetadata)"
                                 [ngModel]="value"
                                 [disabled]="hasPrefilter()"
                             ></p-inputNumber>
@@ -131,13 +189,14 @@
                     </ng-template>
                 </p-columnFilter>
                 <p-columnFilter field="subnetId" matchMode="equals" [showMenu]="false">
-                    <ng-template pTemplate="filter" let-value let-filter="filterCallback">
+                    <ng-template pTemplate="filter" let-value let-filterMetadata="filterConstraint">
                         <span class="p-float-label">
                             <p-inputNumber
                                 inputId="subnet-id"
                                 mode="decimal"
                                 [useGrouping]="false"
-                                (onInput)="filter($event.value)"
+                                min="1"
+                                (onInput)="filterTable($event.value === 0 ? 1 : $event.value, filterMetadata)"
                                 [ngModel]="value"
                             ></p-inputNumber>
                             <label for="subnet-id">Subnet ID</label>
@@ -145,13 +204,14 @@
                     </ng-template>
                 </p-columnFilter>
                 <p-columnFilter field="keaSubnetId" matchMode="equals" [showMenu]="false">
-                    <ng-template pTemplate="filter" let-value let-filter="filterCallback">
+                    <ng-template pTemplate="filter" let-value let-filterMetadata="filterConstraint">
                         <span class="p-float-label">
                             <p-inputNumber
                                 inputId="kea-subnet-id"
                                 mode="decimal"
                                 [useGrouping]="false"
-                                (onInput)="filter($event.value)"
+                                min="1"
+                                (onInput)="filterTable($event.value === 0 ? 1 : $event.value, filterMetadata)"
                                 [ngModel]="value"
                             ></p-inputNumber>
                             <label for="kea-subnet-id">Kea Subnet ID</label>
@@ -167,13 +227,13 @@
                     <p-columnFilter type="boolean" field="conflict" matchMode="equals"></p-columnFilter>
                 </div>
                 <p-columnFilter field="text" matchMode="contains" [showMenu]="false">
-                    <ng-template pTemplate="filter" let-value let-filter="filterCallback">
+                    <ng-template pTemplate="filter" let-value let-filterMetadata="filterConstraint">
                         <span class="p-input-icon-left">
                             <i class="pi pi-search"></i>
                             <input
                                 pInputText
                                 type="text"
-                                (input)="filter($event.target.value)"
+                                (input)="filterTable($event.target.value, filterMetadata)"
                                 [ngModel]="value"
                                 placeholder="Search IP or identifier"
                             />

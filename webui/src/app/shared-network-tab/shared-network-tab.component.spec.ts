@@ -39,6 +39,10 @@ import { ParameterViewComponent } from '../parameter-view/parameter-view.compone
 import { UnhyphenPipe } from '../pipes/unhyphen.pipe'
 import { UncamelPipe } from '../pipes/uncamel.pipe'
 import { PositivePipe } from '../pipes/positive.pipe'
+import { ManagedAccessDirective } from '../managed-access.directive'
+import { AuthService } from '../auth.service'
+import { UtilizationBarComponent } from '../utilization-bar/utilization-bar.component'
+import { PoolBarsComponent } from '../pool-bars/pool-bars.component'
 
 describe('SharedNetworkTabComponent', () => {
     let component: SharedNetworkTabComponent
@@ -46,6 +50,7 @@ describe('SharedNetworkTabComponent', () => {
     let dhcpApi: DHCPService
     let msgService: MessageService
     let confirmService: ConfirmationService
+    let authService: AuthService
 
     beforeEach(async () => {
         await TestBed.configureTestingModule({
@@ -68,6 +73,8 @@ describe('SharedNetworkTabComponent', () => {
                 SubnetBarComponent,
                 UtilizationStatsChartComponent,
                 UtilizationStatsChartsComponent,
+                UtilizationBarComponent,
+                PoolBarsComponent,
             ],
             imports: [
                 ButtonModule,
@@ -84,6 +91,7 @@ describe('SharedNetworkTabComponent', () => {
                 TagModule,
                 TooltipModule,
                 TreeModule,
+                ManagedAccessDirective,
             ],
             providers: [
                 ConfirmationService,
@@ -98,6 +106,8 @@ describe('SharedNetworkTabComponent', () => {
         dhcpApi = fixture.debugElement.injector.get(DHCPService)
         confirmService = fixture.debugElement.injector.get(ConfirmationService)
         msgService = fixture.debugElement.injector.get(MessageService)
+        authService = fixture.debugElement.injector.get(AuthService)
+        spyOn(authService, 'superAdmin').and.returnValue(true)
         fixture.detectChanges()
     })
 

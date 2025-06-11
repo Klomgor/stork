@@ -9,9 +9,13 @@ import (
 // A type representing a configuration lock key.
 type LockKey int64
 
-// Low-level mechanism for locking the daemons' configurations.
-// For high-level mechanism that utilizes the context lock at the ManagerLocker
-// interface.
+// The interface defining the locking mechanism for daemons. The locked daemon's
+// configuration may be modified only by the object that has acquired the lock.
+//
+// The interface may be used by other components that may wrap it with a
+// convenient API suitable for their use cases as the ManagerLocker interface
+// does.
+//
 // Locker must be thread-safe.
 type DaemonLocker interface {
 	// Locks the daemons' configurations for update.
@@ -98,8 +102,8 @@ func (locker *daemonLocker) lock(key LockKey, daemonID int64) error {
 	return nil
 }
 
-// Unlocks the configurations of the specified daemons if the key stored in the
-// context matches.
+// Unlocks the configurations of the specified daemons if the provided key
+// matches the key gained during the lock acquisition.
 func (locker *daemonLocker) Unlock(key LockKey, daemonIDs ...int64) error {
 	locker.mutex.Lock()
 	defer locker.mutex.Unlock()

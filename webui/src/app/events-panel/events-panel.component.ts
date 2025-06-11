@@ -103,6 +103,13 @@ export class EventsPanelComponent implements OnInit, OnChanges, OnDestroy {
      */
     private _initialized = false
 
+    /**
+     * Returns boolean flag stating whether user has privileges to retrieve the events from backend.
+     */
+    get canReadEvents(): boolean {
+        return this.auth.hasPrivilege('events')
+    }
+
     constructor(
         private eventsApi: EventsService,
         private usersApi: UsersService,
@@ -177,7 +184,7 @@ export class EventsPanelComponent implements OnInit, OnChanges, OnDestroy {
             return
         }
 
-        if (this.auth.superAdmin()) {
+        if (this.auth.hasPrivilege('users')) {
             lastValueFrom(this.usersApi.getUsers(0, 1000, null))
                 .then((data) => {
                     this.users = data.items
@@ -242,6 +249,11 @@ export class EventsPanelComponent implements OnInit, OnChanges, OnDestroy {
      * Load the most recent events from Stork server
      */
     refreshEvents(event) {
+        // In case of lack of privileges, do not fetch events.
+        if (!this.canReadEvents) {
+            return
+        }
+
         if (event) {
             this.start = event.first
             this.limit = event.rows

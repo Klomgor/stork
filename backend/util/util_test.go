@@ -121,6 +121,15 @@ func TestBytesToHex(t *testing.T) {
 	require.Equal(t, "0102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F20", str)
 }
 
+// Check if the BytesToHexWithSeparator works.
+func TestBytesToHexWithSeparator(t *testing.T) {
+	bytesArray := []byte{1, 2, 3, 4, 5, 6}
+	require.Equal(t, "01:02:03:04:05:06", BytesToHexWithSeparator(bytesArray, ":"))
+	require.Equal(t, "01-02-03-04-05-06", BytesToHexWithSeparator(bytesArray, "-"))
+	require.Equal(t, "01 02 03 04 05 06", BytesToHexWithSeparator(bytesArray, " "))
+	require.Equal(t, "010203040506", BytesToHexWithSeparator(bytesArray, ""))
+}
+
 // Test conversion from hex to bytes.
 func TestHexToBytes(t *testing.T) {
 	require.EqualValues(t, HexToBytes("00:01:02:03:04:05:06"), []byte{0, 1, 2, 3, 4, 5, 6})
@@ -382,27 +391,29 @@ func TestPtr(t *testing.T) {
 	require.Equal(t, int64(64), *ptr)
 }
 
-// Test the function that checks if a specified value is a whole number.
-func TestIsWholeNumber(t *testing.T) {
+// Test the function that checks if a specified value is a number.
+func TestIsNumber(t *testing.T) {
 	// Signed integers.
-	require.True(t, IsWholeNumber(int8(100)))
-	require.True(t, IsWholeNumber(int16(100)))
-	require.True(t, IsWholeNumber(int32(100)))
-	require.True(t, IsWholeNumber(int64(100)))
-	require.True(t, IsWholeNumber(int(100)))
+	require.True(t, IsNumber(int8(100)))
+	require.True(t, IsNumber(int16(100)))
+	require.True(t, IsNumber(int32(100)))
+	require.True(t, IsNumber(int64(100)))
+	require.True(t, IsNumber(int(100)))
 	// Unsigned integers.
-	require.True(t, IsWholeNumber(uint8(100)))
-	require.True(t, IsWholeNumber(uint16(100)))
-	require.True(t, IsWholeNumber(uint32(100)))
-	require.True(t, IsWholeNumber(uint64(100)))
-	require.True(t, IsWholeNumber(uint(100)))
+	require.True(t, IsNumber(uint8(100)))
+	require.True(t, IsNumber(uint16(100)))
+	require.True(t, IsNumber(uint32(100)))
+	require.True(t, IsNumber(uint64(100)))
+	require.True(t, IsNumber(uint(100)))
+	// Floating point numbers.
+	require.True(t, IsNumber(float64(1.1)))
+	require.True(t, IsNumber(float32(1.1)))
 	// Not whole numbers.
-	require.False(t, IsWholeNumber(1.1))
-	require.False(t, IsWholeNumber("foo"))
-	require.False(t, IsWholeNumber(struct{}{}))
-	require.False(t, IsWholeNumber(interface{}(nil)))
+	require.False(t, IsNumber("foo"))
+	require.False(t, IsNumber(struct{}{}))
+	require.False(t, IsNumber(interface{}(nil)))
 	u8 := uint8(123)
-	require.False(t, IsWholeNumber(&u8))
+	require.False(t, IsNumber(&u8))
 }
 
 // Test that the system command executor is constructed properly.

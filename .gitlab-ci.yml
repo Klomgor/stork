@@ -4,7 +4,7 @@ image: registry.gitlab.isc.org/isc-projects/stork/ci-base:3
 workflow:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_REF_NAME =~ /^stork_v[0-9]+_[0-9]+$/)'
 
 variables:
   POSTGRES_ADDR: postgres:5432
@@ -144,7 +144,7 @@ stages:
       - tools/
     fallback_keys:
       - $CI_PROJECT_NAME-alpine-$CI_DEFAULT_BRANCH
-  image: registry.gitlab.isc.org/isc-projects/stork/pkgs-alpine:7
+  image: registry.gitlab.isc.org/isc-projects/stork/pkgs-alpine:8
   tags:
     - linux
     - aws
@@ -587,7 +587,7 @@ install_rpms_arm64:
     - build_rpms_arm64
 
 install_apks_amd64:
-  image: registry.gitlab.isc.org/isc-projects/stork/pkgs-alpine:7
+  image: registry.gitlab.isc.org/isc-projects/stork/pkgs-alpine:8
   tags:
     - linux
     - aws
@@ -644,7 +644,7 @@ system_test:
   services:
     - docker:dind
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_REF_NAME =~ /^stork_v[0-9]+_[0-9]+$/)'
       when: always
     - when: manual
       allow_failure: true
@@ -681,10 +681,10 @@ system_test:
     reports:
       junit: tests/system/test-results/junit.xml
 
-system_test_kea_2.7.5:
+system_test_kea_2.6:
   extends: system_test
   variables:
-    KEA_VERSION: 2.7.5-isc20241206195208
+    KEA_VERSION: 2.6.2-isc20250317140612
     ONLY_KEA_TESTS: "true"
   script:
     - rake systemtest
@@ -906,7 +906,7 @@ packages_hooks:
 upload_to_repo:
   stage: deploy
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_REF_NAME =~ /^stork_v[0-9]+_[0-9]+$/)'
       when: manual
     - when: manual
       allow_failure: true
@@ -977,7 +977,7 @@ deploy_demo:
 upload_packages:
   stage: deploy
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_REF_NAME =~ /^stork_v[0-9]+_[0-9]+$/)'
       when: manual
     - when: manual
       allow_failure: true

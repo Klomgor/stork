@@ -11,6 +11,8 @@
         type="button"
         routerLink="/dhcp/subnets/new"
         pButton
+        appAccessEntity="subnet"
+        appAccessType="create"
     ></a>
     <p-button
         label="Refresh List"
@@ -41,9 +43,17 @@
     styleClass="p-datatable-striped"
 >
     <ng-template pTemplate="caption">
-        <p-panel [toggleable]="true">
+        <p-panel #filtersPanel [toggleable]="true" styleClass="p-panel-icons-hidden">
             <ng-template pTemplate="header">
                 <div class="flex align-items-center gap-2">
+                    <p-button
+                        type="button"
+                        [text]="true"
+                        [rounded]="true"
+                        [plain]="true"
+                        [icon]="!filtersPanel.collapsed ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+                        (click)="filtersPanel.toggle($event)"
+                    />
                     <i class="pi pi-filter"></i>
                     <span class="font-bold">Filters</span>
                     <p-tag
@@ -92,13 +102,14 @@
                 ></button>
                 <div class="flex-auto"></div>
                 <p-columnFilter field="appId" matchMode="equals" [showMenu]="false" [showClearButton]="!hasPrefilter()">
-                    <ng-template pTemplate="filter" let-value let-filter="filterCallback">
+                    <ng-template pTemplate="filter" let-value let-filterMetadata="filterConstraint">
                         <span class="p-float-label">
                             <p-inputNumber
                                 inputId="app-id"
                                 mode="decimal"
                                 [useGrouping]="false"
-                                (onInput)="filter($event.value)"
+                                min="1"
+                                (onInput)="filterTable($event.value === 0 ? 1 : $event.value, filterMetadata)"
                                 [ngModel]="value"
                                 [disabled]="hasPrefilter()"
                             ></p-inputNumber>
@@ -107,13 +118,14 @@
                     </ng-template>
                 </p-columnFilter>
                 <p-columnFilter field="subnetId" matchMode="equals" [showMenu]="false">
-                    <ng-template pTemplate="filter" let-value let-filter="filterCallback">
+                    <ng-template pTemplate="filter" let-value let-filterMetadata="filterConstraint">
                         <span class="p-float-label">
                             <p-inputNumber
                                 inputId="subnet-id"
                                 mode="decimal"
                                 [useGrouping]="false"
-                                (onInput)="filter($event.value)"
+                                min="1"
+                                (onInput)="filterTable($event.value === 0 ? 1 : $event.value, filterMetadata)"
                                 [ngModel]="value"
                             ></p-inputNumber>
                             <label for="subnet-id">Subnet ID</label>
@@ -121,7 +133,7 @@
                     </ng-template>
                 </p-columnFilter>
                 <p-columnFilter field="dhcpVersion" matchMode="equals" [showMenu]="false">
-                    <ng-template pTemplate="filter" let-value let-filter="filterCallback">
+                    <ng-template pTemplate="filter" let-value let-filterMetadata="filterConstraint">
                         <span class="p-float-label">
                             <p-dropdown
                                 inputId="dhcp-version"
@@ -131,7 +143,7 @@
                                 ]"
                                 optionLabel="label"
                                 optionValue="value"
-                                (onChange)="filter($event.value)"
+                                (onChange)="filterTable($event.value, filterMetadata)"
                                 [ngModel]="value"
                                 styleClass="w-10rem"
                             ></p-dropdown>
@@ -140,13 +152,13 @@
                     </ng-template>
                 </p-columnFilter>
                 <p-columnFilter field="text" matchMode="contains" [showMenu]="false">
-                    <ng-template pTemplate="filter" let-value let-filter="filterCallback">
+                    <ng-template pTemplate="filter" let-value let-filterMetadata="filterConstraint">
                         <span class="p-input-icon-left">
                             <i class="pi pi-search"></i>
                             <input
                                 pInputText
                                 type="text"
-                                (input)="filter($event.target.value)"
+                                (input)="filterTable($event.target.value, filterMetadata)"
                                 [ngModel]="value"
                                 placeholder="Search IP or identifier"
                             />
@@ -206,7 +218,7 @@
                 <app-human-count [value]="getAssignedAddresses(sn)"></app-human-count>
             </td>
             <td>
-                {{ sn.addrUtilization ? sn.addrUtilization : '0' }} %
+                {{ sn.addrUtilization ?? 0 | number: '1.0-1' }}%
                 <i
                     *ngIf="sn.addrUtilization > 80 && sn.addrUtilization <= 90"
                     class="pi pi-exclamation-triangle text-2xl vertical-align-text-top text-orange-400"
@@ -224,7 +236,7 @@
                     <app-human-count [value]="getAssignedDelegatedPrefixes(sn)"></app-human-count>
                 </td>
                 <td *ngIf="sn.subnet.includes(':')">
-                    {{ sn.pdUtilization ? sn.pdUtilization : '0' }} %
+                    {{ sn.pdUtilization ?? 0 | number: '1.0-1' }}%
                     <i
                         *ngIf="sn.pdUtilization > 80 && sn.pdUtilization <= 90"
                         class="pi pi-exclamation-triangle text-2xl vertical-align-text-top text-orange-400"
@@ -237,11 +249,7 @@
                 <td *ngIf="sn.subnet.includes('.')">-</td>
             </ng-container>
             <td>
-                <app-address-pool-bar *ngFor="let p of sn.pools" [pool]="p"></app-address-pool-bar>
-                <app-delegated-prefix-bar
-                    [prefix]="p"
-                    *ngFor="let p of sn.prefixDelegationPools"
-                ></app-delegated-prefix-bar>
+                <app-pool-bars [addressPools]="sn.pools" [pdPools]="sn.prefixDelegationPools"></app-pool-bars>
             </td>
             <td>
                 {{ sn.sharedNetwork }}

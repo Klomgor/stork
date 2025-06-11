@@ -1,0 +1,131 @@
+<div *ngIf="migration" class="mt-4 mx-2">
+    <div class="flex text-xl align-items-baseline font-normal text-primary mb-4">
+        <div class="fa fa-suitcase mr-2"></div>
+        <div id="tab-title-span">Migration: {{ migration.id }}</div>
+    </div>
+
+    <div class="grid gap-4">
+        <!-- Status Info -->
+        <div class="col flex-initial max-w-50rem">
+            <p-fieldset legend="Status">
+                <div class="flex flex-column gap-3">
+                    <div class="flex align-items-center">
+                        <span class="font-semibold w-8rem">Status:</span>
+                        <p-tag [severity]="statusSeverity" [value]="statusText"></p-tag>
+                    </div>
+
+                    <div class="flex align-items-center" *ngIf="migration.generalError">
+                        <span class="font-semibold w-8rem">General error:</span>
+                        <span class="text-red-500">{{ migration.generalError }}</span>
+                    </div>
+
+                    <div class="flex align-items-center" *ngIf="totalErrors > 0">
+                        <span class="font-semibold w-8rem">Errors:</span>
+                        <p-tag severity="danger" [value]="totalErrors + ' errors'"></p-tag>
+                    </div>
+
+                    <div class="flex align-items-center">
+                        <span class="font-semibold w-8rem">Progress:</span>
+                        <p-progressBar [value]="completionPercentage" [showValue]="true" class="flex-1"></p-progressBar>
+                    </div>
+
+                    <div class="flex align-items-center">
+                        <span class="font-semibold w-8rem">Entities:</span>
+                        <span>{{ migration.processedItemsCount }} / {{ migration.totalItemsCount }}</span>
+                    </div>
+
+                    <div class="flex align-items-center">
+                        <span class="font-semibold w-8rem">Start Date:</span>
+                        <span>{{ migration.startDate | localtime }}</span>
+                    </div>
+
+                    <div class="flex align-items-center" *ngIf="migration.endDate">
+                        <span class="font-semibold w-8rem">End Date:</span>
+                        <span>{{ migration.endDate | localtime }}</span>
+                    </div>
+
+                    <div class="flex align-items-center">
+                        <span class="font-semibold w-8rem">Duration:</span>
+                        <span>{{ migration.elapsedTime | duration }}</span>
+                    </div>
+
+                    <div class="flex align-items-center" *ngIf="isRunning">
+                        <span class="font-semibold w-8rem">Estimated Left:</span>
+                        <span>{{ migration.estimatedLeftTime | duration }}</span>
+                    </div>
+
+                    <div class="flex align-items-center">
+                        <span class="font-semibold w-8rem">Started by:</span>
+                        <app-entity-link
+                            entity="user"
+                            [attrs]="{ id: migration.authorId, login: migration.authorLogin }"
+                        ></app-entity-link>
+                    </div>
+                </div>
+            </p-fieldset>
+
+            <!-- Actions Section -->
+            <div class="mt-4 flex gap-2 flex-wrap">
+                <button type="button" pButton label="Refresh" icon="pi pi-refresh" (click)="onRefresh()"></button>
+                <button
+                    type="button"
+                    pButton
+                    label="Cancel Migration"
+                    icon="pi pi-times"
+                    class="p-button-danger"
+                    [disabled]="!isRunning || migration.canceling || !canCancelMigration"
+                    (click)="onCancel()"
+                    appAccessEntity="migrations"
+                    appAccessType="update"
+                ></button>
+            </div>
+        </div>
+
+        <!-- Errors Section - Always visible if there are errors -->
+        <div class="col max-w-50rem">
+            <div *ngIf="totalErrors > 0">
+                <p-fieldset legend="Errors">
+                    <p-table
+                        [value]="errorItems"
+                        [totalRecords]="totalErrors"
+                        [paginator]="true"
+                        [rows]="50"
+                        [rowsPerPageOptions]="[10, 50, 100, 200, 500]"
+                        [showCurrentPageReport]="true"
+                        [alwaysShowPaginator]="false"
+                        styleClass="p-datatable-sm"
+                    >
+                        <ng-template pTemplate="header">
+                            <tr>
+                                <th>Entity</th>
+                                <th>Error</th>
+                            </tr>
+                        </ng-template>
+                        <ng-template pTemplate="body" let-error>
+                            <tr>
+                                <td>
+                                    <ng-container [ngSwitch]="error.causeEntity">
+                                        <app-entity-link
+                                            *ngSwitchCase="'host'"
+                                            entity="host"
+                                            [attrs]="{ id: error.id, label: error.label }"
+                                        ></app-entity-link>
+                                        <span *ngSwitchDefault
+                                            >{{ error.type }} [{{ error.id }}] {{ error.label }}</span
+                                        >
+                                    </ng-container>
+                                </td>
+                                <td class="text-red-500">{{ error.error }}</td>
+                            </tr>
+                        </ng-template>
+                        <ng-template pTemplate="emptymessage">
+                            <tr>
+                                <td colspan="2">No error details available</td>
+                            </tr>
+                        </ng-template>
+                    </p-table>
+                </p-fieldset>
+            </div>
+        </div>
+    </div>
+</div>

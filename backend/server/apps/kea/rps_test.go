@@ -20,9 +20,8 @@ func TestRpsWorkerEmptyOrInvalidResponses(t *testing.T) {
 
 	// JSON response to send per call number
 	jsonResponses := []string{
-		`[{ "result": 0, "text": "Samples missing", "arguments": {} }]`,
-		`[{ "result": 0, "text": "No Arguments", }]`,
-		`[{ "result": 1, "text": "Error response", }]`,
+		`[{ "result": 0, "text": "No Arguments" }]`,
+		`[{ "result": 1, "text": "Error response" }]`,
 	}
 
 	// Create a machine with one app and two kea daemons
@@ -308,24 +307,20 @@ func getExpectedRps(rpsIntervals []*dbmodel.RpsInterval, endIdx int) float32 {
 
 // Marshall a given json response to a DHCP4 command and pass that into Response4Handler.
 func rpsTestInvokeResponse4Handler(rps *RpsWorker, daemon *dbmodel.Daemon, jsonResponse string) error {
-	cmds := []*keactrl.Command{}
-	responses := []interface{}{}
+	var response keactrl.StatisticGetAllResponse
+	cmd := keactrl.NewCommandBase(keactrl.StatisticGetAll, daemon.Name)
+	keactrl.UnmarshalResponseList(cmd, []byte(jsonResponse), &response)
 
-	responses = append(responses, RpsAddCmd4(&cmds, []string{dhcp4}))
-	keactrl.UnmarshalResponseList(cmds[0], []byte(jsonResponse), responses[0])
-
-	err := rps.Response4Handler(daemon, responses[0])
+	err := rps.Response4Handler(daemon, response[0])
 	return err
 }
 
 // Marshall a given json response to a DHCP6 command and pass that into Response6Handler.
 func rpsTestInvokeResponse6Handler(rps *RpsWorker, daemon *dbmodel.Daemon, jsonResponse string) error {
-	cmds := []*keactrl.Command{}
-	responses := []interface{}{}
+	var response keactrl.StatisticGetAllResponse
+	cmd := keactrl.NewCommandBase(keactrl.StatisticGetAll, daemon.Name)
+	keactrl.UnmarshalResponseList(cmd, []byte(jsonResponse), &response)
 
-	responses = append(responses, RpsAddCmd6(&cmds, []string{dhcp6}))
-	keactrl.UnmarshalResponseList(cmds[0], []byte(jsonResponse), responses[0])
-
-	err := rps.Response6Handler(daemon, responses[0])
+	err := rps.Response6Handler(daemon, response[0])
 	return err
 }

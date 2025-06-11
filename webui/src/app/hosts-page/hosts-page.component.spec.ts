@@ -52,6 +52,7 @@ import { HostsTableComponent } from '../hosts-table/hosts-table.component'
 import { PanelModule } from 'primeng/panel'
 import { ByteCharacterComponent } from '../byte-character/byte-character.component'
 import { provideHttpClient, withInterceptorsFromDi } from '@angular/common/http'
+import { ManagedAccessDirective } from '../managed-access.directive'
 
 describe('HostsPageComponent', () => {
     let component: HostsPageComponent
@@ -117,6 +118,7 @@ describe('HostsPageComponent', () => {
                 MessagesModule,
                 InputNumberModule,
                 PanelModule,
+                ManagedAccessDirective,
             ],
             providers: [
                 DHCPService,
@@ -1153,7 +1155,7 @@ describe('HostsPageComponent', () => {
         tick()
         fixture.detectChanges()
 
-        // Invalid filter should not be applied, so dhcpApi.getHosts should be called with default params.
+        // Invalid filter should not be applied, so dhcpApi.getHosts should be called with the last valid filter.
         expect(dhcpApi.getHosts).toHaveBeenCalledWith(0, 10, null, null, null, null, null, null)
 
         const errMsg = fixture.debugElement.query(By.css('.p-error'))
@@ -1187,7 +1189,7 @@ describe('HostsPageComponent', () => {
         tick()
         fixture.detectChanges()
 
-        // Invalid filter should not be applied, so dhcpApi.getHosts should be called with default params.
+        // Invalid filter should not be applied, so dhcpApi.getHosts should be called with the last valid filter.
         expect(dhcpApi.getHosts).toHaveBeenCalledWith(0, 10, null, null, null, null, null, null)
 
         const errMsg = fixture.debugElement.query(By.css('.p-error'))
@@ -1251,7 +1253,7 @@ describe('HostsPageComponent', () => {
         tick()
         fixture.detectChanges()
 
-        // Invalid filter should not be applied, so dhcpApi.getHosts should be called with default params.
+        // Invalid filter should not be applied, so dhcpApi.getHosts should be called with the last valid filter.
         expect(dhcpApi.getHosts).toHaveBeenCalledWith(0, 10, null, null, null, null, null, null)
 
         const errMsg = fixture.debugElement.query(By.css('.p-error'))
@@ -1274,7 +1276,7 @@ describe('HostsPageComponent', () => {
         tick()
         fixture.detectChanges()
 
-        // Invalid filter should not be applied, so dhcpApi.getHosts should be called with default params.
+        // Invalid filter should not be applied, so dhcpApi.getHosts should be called with the last valid filter.
         expect(dhcpApi.getHosts).toHaveBeenCalledWith(0, 10, null, null, null, null, null, null)
 
         const errMsgs = fixture.debugElement.queryAll(By.css('.p-error'))

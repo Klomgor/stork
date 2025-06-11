@@ -28,7 +28,7 @@
       status:
         type: string
         enum: [busy, erred, ok, uninitialized]
-      zoneCount:
+      zoneConfigsCount:
         type: integer
         x-nullable: true
 
@@ -80,6 +80,32 @@
         type: array
         items:
           $ref: '#/definitions/LocalZone'
+
+  # ZoneRR
+  ZoneRR:
+    type: object
+    properties:
+      name:
+        type: string
+      ttl:
+        type: integer
+      rrClass:
+        type: string
+      rrType:
+        type: string
+      data:
+        type: string
+
+  # ZoneRRs
+  ZoneRRs:
+    type: object
+    properties:
+      items:
+        type: array
+        items:
+          $ref: '#/definitions/ZoneRR'
+      total:
+        type: integer
 
   # Zones
   Zones:

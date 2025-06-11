@@ -13,8 +13,7 @@ import { of, throwError } from 'rxjs'
 
 import { DHCPService, Host, Lease } from '../backend'
 import { HostTabComponent } from './host-tab.component'
-import { RouterModule } from '@angular/router'
-import { RouterTestingModule } from '@angular/router/testing'
+import { provideRouter, RouterModule } from '@angular/router'
 import { ToggleButtonModule } from 'primeng/togglebutton'
 import { IdentifierComponent } from '../identifier/identifier.component'
 import { TreeModule } from 'primeng/tree'
@@ -31,6 +30,8 @@ import { ProgressSpinnerModule } from 'primeng/progressspinner'
 import { MessagesModule } from 'primeng/messages'
 import { ByteCharacterComponent } from '../byte-character/byte-character.component'
 import { provideHttpClient, withInterceptorsFromDi } from '@angular/common/http'
+import { ManagedAccessDirective } from '../managed-access.directive'
+import { AuthService } from '../auth.service'
 
 describe('HostTabComponent', () => {
     let component: HostTabComponent
@@ -38,6 +39,7 @@ describe('HostTabComponent', () => {
     let dhcpApi: DHCPService
     let msgService: MessageService
     let confirmService: ConfirmationService
+    let authService: AuthService
 
     beforeEach(waitForAsync(() => {
         TestBed.configureTestingModule({
@@ -61,12 +63,12 @@ describe('HostTabComponent', () => {
                 OverlayPanelModule,
                 TableModule,
                 RouterModule,
-                RouterTestingModule,
                 ToggleButtonModule,
                 TreeModule,
                 TagModule,
                 MessagesModule,
                 ProgressSpinnerModule,
+                ManagedAccessDirective,
             ],
             providers: [
                 DHCPService,
@@ -74,6 +76,7 @@ describe('HostTabComponent', () => {
                 MessageService,
                 provideHttpClient(withInterceptorsFromDi()),
                 provideHttpClientTesting(),
+                provideRouter([]),
             ],
         }).compileComponents()
     }))
@@ -84,6 +87,9 @@ describe('HostTabComponent', () => {
         dhcpApi = fixture.debugElement.injector.get(DHCPService)
         confirmService = fixture.debugElement.injector.get(ConfirmationService)
         msgService = fixture.debugElement.injector.get(MessageService)
+        authService = fixture.debugElement.injector.get(AuthService)
+        spyOn(authService, 'superAdmin').and.returnValue(true)
+        component.canGetLeases = true
         fixture.detectChanges()
     })
 
@@ -588,6 +594,7 @@ describe('HostTabComponent', () => {
         }
         fakeLeases.conflicts.push(2)
         spy.and.returnValue(of(fakeLeases))
+        component.canGetLeases = true
         component.refreshLeases()
         expect(dhcpApi.getLeases).toHaveBeenCalled()
         fixture.detectChanges()

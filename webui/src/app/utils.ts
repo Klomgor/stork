@@ -277,12 +277,12 @@ export function daemonStatusErred(daemon) {
  */
 export function daemonStatusIconName(daemon: KeaDaemon) {
     if (!daemon.monitored) {
-        return 'pi-ban icon-not-monitored'
+        return 'pi pi-ban icon-not-monitored'
     }
     if (!daemon.active) {
-        return 'pi-times icon-not-active'
+        return 'pi pi-times icon-not-active'
     }
-    return 'pi-check icon-ok'
+    return 'pi pi-check icon-ok'
 }
 
 /**
@@ -507,16 +507,58 @@ export function getBaseApiPath(apiUrl: string) {
     return baseHref + '/' + apiUrl
 }
 
-// Mock of the Angular ParamMap class.
+/**
+ * Mock of the Angular ParamMap class.
+ */
 export class MockParamMap {
-    /** Always returns null. */
-    get(/* name: string */): string | null {
-        return null
+    constructor(private entries?: Record<string, string | string[]>) {}
+
+    /**
+     * Returns the value of the parameter with the given name.
+     * @param name name of the parameter to be retrieved.
+     * @returns the value of the parameter or null if not found.
+     */
+    get(name: string): string | null {
+        if (!this.entries?.[name]) {
+            return null
+        }
+
+        if (Array.isArray(this.entries[name])) {
+            return this.entries[name][0]
+        }
+        return this.entries[name] as string
     }
 
-    /** Always returns false. */
-    has(/* name: string */): boolean {
-        return false
+    /**
+     * Returns the values of the parameter with the given name.
+     * @param name name of the parameter to be retrieved.
+     * @returns the values of the parameter or null if not found.
+     */
+    getAll(name: string): string[] {
+        if (!this.entries?.[name]) {
+            return []
+        }
+
+        if (Array.isArray(this.entries[name])) {
+            return this.entries[name]
+        }
+        return [this.entries[name] as string]
+    }
+
+    /**
+     * Returns the value of the parameter with the given name.
+     * @param name name of the parameter to be retrieved.
+     * @returns the value of the parameter or null if not found.
+     */
+    has(name: string): boolean {
+        return this.entries?.hasOwnProperty(name) ?? false
+    }
+
+    /**
+     * Returns all names of the parameters.
+     */
+    get keys(): string[] {
+        return this.entries ? Object.keys(this.entries) : []
     }
 }
 
@@ -526,14 +568,14 @@ export class MockParamMap {
  * The words in the long names begin with upper case and are separated with
  * space characters. For example: 'cacheThreshold' becomes 'Cache Threshold'.
  *
- * It also handles several special cases. When the converted name begins with:
- * - pd - it is converted to PD,
- * - ip - it is converted to IP,
- * - underscore character - it is removed.
+ * It also handles several special cases. When the converted name begins with
+ * underscore character, it is removed. When one of the words in the name
+ * is one of the following: `id`, `na`, `pd`, `ip`, it is converted to
+ * upper case: `ID`, `NA`, `PD`, `IP`. It handles plural forms as well,
+ * i.e. `ids`, `nas`, `pds`, `ips` are converted to `IDs`, `NAs`, `PDs`, `IPs`.
  *
- * When the name contains:
- * - ddns - it is converted to DDNS,
- * - dhcp - it is converted to DHCP
+ * When the name contains `ddns`, it is converted to `DDNS`. If it contains `dhcp`,
+ * it is converted to `DHCP`.
  *
  * The case of the converted special case strings is ignored.
  *
@@ -548,8 +590,10 @@ export function uncamelCase(key: string): string {
     text = text.replace(/([A-Z]+)/g, ' $1')
     text = text.replace(/ddns/gi, 'DDNS')
     text = text.replace(/dhcp/gi, 'DHCP')
-    text = text.replace(/^pd/gi, 'PD')
-    text = text.replace(/^ip/gi, 'IP')
+    text = text.replace(/\bpd(s)?\b/gi, 'PD$1')
+    text = text.replace(/\bna(s)?\b/gi, 'NA$1')
+    text = text.replace(/\bip(s)?\b/gi, 'IP$1')
+    text = text.replace(/\bid(s)?\b/gi, 'ID$1')
     text = text.charAt(0).toUpperCase() + text.slice(1)
     return text
 }

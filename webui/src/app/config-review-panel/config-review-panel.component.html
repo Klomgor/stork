@@ -50,6 +50,8 @@
                     icon="fas fa-tasks"
                     [loading]="busy"
                     (click)="runReview()"
+                    appAccessEntity="daemon-config-review"
+                    appAccessType="update"
                 ></button>
                 <ng-template #refreshFailedElse>
                     <button

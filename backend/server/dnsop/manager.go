@@ -2,13 +2,19 @@ package dnsop
 
 import (
 	"context"
-	"errors"
+	"fmt"
+	"hash/fnv"
+	"iter"
+	"runtime"
 	"sync"
 
 	"github.com/go-pg/pg/v10"
+	"github.com/miekg/dns"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	agentcomm "isc.org/stork/server/agentcomm"
 	dbmodel "isc.org/stork/server/database/model"
+	storkutil "isc.org/stork/util"
 )
 
 var _ Manager = (*managerImpl)(nil)
@@ -22,6 +28,26 @@ type ManagerAlreadyFetchingError struct{}
 // Returns the error as text.
 func (error *ManagerAlreadyFetchingError) Error() string {
 	return "DNS manager is already fetching zones from the agents"
+}
+
+// An error returned upon concurrent attempts to transfer the same zone
+// for the same view and daemon.
+type ManagerRRsAlreadyRequestedError struct {
+	viewName string
+	zoneName string
+}
+
+// Instantiates a new ManagerRRsAlreadyRequestedError.
+func NewManagerRRsAlreadyRequestedError(viewName string, zoneName string) *ManagerRRsAlreadyRequestedError {
+	return &ManagerRRsAlreadyRequestedError{
+		viewName: viewName,
+		zoneName: zoneName,
+	}
+}
+
+// Returns the error as text.
+func (error *ManagerRRsAlreadyRequestedError) Error() string {
+	return fmt.Sprintf("zone transfer for view %s, zone %s has been already requested by another user", error.viewName, error.zoneName)
 }
 
 // This interface must be implemented by the instance owning the Manager.
@@ -58,6 +84,8 @@ type Manager interface {
 	// parameters indicate the number of apps from which the zones are fetched and the
 	// number of apps from which the zones have been fetched already.
 	GetFetchZonesProgress() (bool, int, int)
+	GetZoneRRs(zoneID int64, daemonID int64, viewName string) iter.Seq2[[]dns.RR, error]
+	Shutdown()
 }
 
 // A zones fetching state including the flag whether or not the fetch
@@ -115,6 +143,43 @@ func (state *fetchingState) increaseCompletedAppsCount() {
 	state.completedAppsCount += 1
 }
 
+// A state of requests sent to the agents to fetch RRs.
+type rrsRequestingState struct {
+	pool        *storkutil.PausablePool
+	cancel      context.CancelFunc
+	requestChan chan *rrsRequest
+	requests    map[uint64]bool
+	mutex       sync.Mutex
+}
+
+// A structure holding a request to fetch RRs for a zone.
+type rrsRequest struct {
+	app       *dbmodel.App
+	zoneName  string
+	viewName  string
+	respChan  chan *rrResponse
+	closeOnce sync.Once
+	key       uint64
+}
+
+// Instantiates a new RRs request.
+func newRRsRequest(key uint64, app *dbmodel.App, zoneName string, viewName string) *rrsRequest {
+	return &rrsRequest{
+		app:       app,
+		zoneName:  zoneName,
+		viewName:  viewName,
+		respChan:  make(chan *rrResponse),
+		closeOnce: sync.Once{},
+		key:       key,
+	}
+}
+
+// A structure encapsulating a set of RRs returned by the agent or an error.
+type rrResponse struct {
+	rrs []dns.RR
+	err error
+}
+
 // DNS Manager implementation. The Manager is responsible for coordinating all
 // operations pertaining to DNS in Stork server.
 type managerImpl struct {
@@ -124,6 +189,8 @@ type managerImpl struct {
 	agents agentcomm.ConnectedAgents
 	// A state of fetching zones from the DNS servers by the manager.
 	fetchingState *fetchingState
+	// A state of RRs requests.
+	rrsReqsState *rrsRequestingState
 }
 
 // A structure returned over the channel when Manager completes asynchronous task.
@@ -134,12 +201,20 @@ type ManagerDoneNotify struct {
 }
 
 // Instantiates DNS Manager.
-func NewManager(owner ManagerAccessors) Manager {
-	return &managerImpl{
+func NewManager(owner ManagerAccessors) (Manager, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	impl := &managerImpl{
 		db:            owner.GetDB(),
 		agents:        owner.GetConnectedAgents(),
 		fetchingState: &fetchingState{},
+		rrsReqsState: &rrsRequestingState{
+			requestChan: make(chan *rrsRequest),
+			requests:    make(map[uint64]bool),
+			cancel:      cancel,
+		},
 	}
+	impl.startRRsRequestWorkers(ctx)
+	return impl, nil
 }
 
 // Contacts all agents with DNS servers and fetches zones from these servers.
@@ -192,99 +267,19 @@ func (manager *managerImpl) FetchZones(poolSize, batchSize int, block bool) (cha
 		// channel and fetch the zones from the apps listed in the channel.
 		for i := 0; i < poolSize; i++ {
 			go func(appsChan <-chan dbmodel.App) {
-				state := dbmodel.NewZoneInventoryStateDetails()
 				// Read next app from the channel.
 				for app := range appsChan {
-					defer wg.Done()
-					// Track views. We need to flush the batch when the view changes.
-					// Otherwise, if the new view contains the same zone name that already
-					// exists in the batch, the database will return an error on the
-					// ON CONFLICT DO UPDATE clause.
-					var view string
-					// Insert zones into the database in batches. It significantly improves
-					// performance for large number of zones.
-					batch := dbmodel.NewBatch(manager.db, batchSize, dbmodel.AddZones)
-					for zone, err := range manager.agents.ReceiveZones(context.Background(), &app, nil) {
-						if err != nil {
-							// Returned status depends on the returned error type. Some
-							// errors require special handling.
-							var (
-								busyError      *agentcomm.ZoneInventoryBusyError
-								notInitedError *agentcomm.ZoneInventoryNotInitedError
-							)
-							switch {
-							case errors.As(err, &busyError):
-								// Unable to fetch from the inventory because the inventory on
-								// the agent is busy running some long lasting operation.
-								state.SetStatus(dbmodel.ZoneInventoryStatusBusy, err)
-							case errors.As(err, &notInitedError):
-								// Unable to fetch from the inventory because the inventory has
-								// not been initialized yet.
-								state.SetStatus(dbmodel.ZoneInventoryStatusUninitialized, err)
-							default:
-								// Some other error.
-								state.SetStatus(dbmodel.ZoneInventoryStatusErred, err)
-							}
-							break
-						}
-						// Successfully received the zone from the agent. Let's queue
-						// it in the database for insertion.
-						dbZone := dbmodel.Zone{
-							Name: zone.Name(),
-							LocalZones: []*dbmodel.LocalZone{
-								{
-									DaemonID: app.Daemons[0].ID,
-									View:     zone.ViewName,
-									Class:    zone.Class,
-									Serial:   zone.Serial,
-									Type:     zone.Type,
-									LoadedAt: zone.Loaded,
-								},
-							},
-						}
-						// The zone also carries the total number of zones in the inventory.
-						state.SetTotalZones(zone.TotalZoneCount)
-						if view != zone.ViewName {
-							// Flush the batch to complete the view insertion. Note that
-							// this is ok even when the view is empty (first zone). In
-							// this case the FlushAndAdd will skip the flush.
-							err = batch.FlushAndAdd(&dbZone)
-							view = zone.ViewName
-						} else {
-							err = batch.Add(&dbZone)
-						}
-						if err != nil {
-							state.SetStatus(dbmodel.ZoneInventoryStatusErred, err)
-							break
-						}
-					}
-					if state.Error == nil {
-						// If we successfully added zones to the database so far. There is
-						// one more batch to add with a lower number of zones than the
-						// specified batchSize.
-						if err := batch.Flush(); err != nil {
-							state.SetStatus(dbmodel.ZoneInventoryStatusErred, err)
-						}
-					}
-					// Add the zone inventory state into the database for this DNS server.
-					if err := dbmodel.AddZoneInventoryState(manager.db, dbmodel.NewZoneInventoryState(app.Daemons[0].ID, state)); err != nil {
-						// This is an exceptional situation and normally shouldn't happen.
-						// Let's communicate this issue to the caller and log it. The
-						// zone inventory state won't be available for this server.
-						state.SetStatus(dbmodel.ZoneInventoryStatusErred, err)
-						log.WithFields(log.Fields{
-							"app": app.Name,
-						}).WithError(err).Error("Failed to save the zone inventory status in the database")
-					}
-					// Store the inventory state in the common map, so it can be returned
-					// to a caller.
-					storeResult(&mutex, results, app.Daemons[0].ID, state)
-					manager.fetchingState.increaseCompletedAppsCount()
+					manager.fetchZonesFromDNSServer(&app, batchSize, &wg, &mutex, results)
 				}
 			}(appsChan)
 		}
 		// Wait for all the go-routines to complete.
 		wg.Wait()
+
+		// Delete orphaned zones in the database.
+		if _, err := dbmodel.DeleteOrphanedZones(manager.db); err != nil {
+			log.WithError(err).Error("Failed to delete orphaned zones in the database")
+		}
 
 		// Log the successful completion.
 		var zoneCount int64
@@ -307,9 +302,257 @@ func (manager *managerImpl) FetchZones(poolSize, batchSize int, block bool) (cha
 	return notifyChannel, nil
 }
 
+// Contacts a specified DNS server and fetches zones from it. The app
+// indicates the DNS server to contact. The batchSize parameter controls
+// the size of the batch of zones to be inserted into the database in a single
+// SQL INSERT. The wg and mutex parameters are used to synchronize the work
+// between multiple goroutines. The results parameter is a map of errors for
+// respective daemons. This function can merely be called from the
+// FetchZones function.
+func (manager *managerImpl) fetchZonesFromDNSServer(app *dbmodel.App, batchSize int, wg *sync.WaitGroup, mutex *sync.Mutex, results map[int64]*dbmodel.ZoneInventoryStateDetails) {
+	defer wg.Done()
+	var (
+		// Track views. We need to flush the batch when the view changes.
+		// Otherwise, if the new view contains the same zone name that already
+		// exists in the batch, the database will return an error on the
+		// ON CONFLICT DO UPDATE clause.
+		view string
+		// During the first iteration we need to delete the local zones.
+		// This flag is used to identify the first iteration.
+		isFirst = true
+	)
+	// Insert zones into the database in batches. It significantly improves
+	// performance for large number of zones.
+	batch := dbmodel.NewBatch(manager.db, batchSize, dbmodel.AddZones)
+	state := dbmodel.NewZoneInventoryStateDetails()
+	for zone, err := range manager.agents.ReceiveZones(context.Background(), app, nil) {
+		if err != nil {
+			// Returned status depends on the returned error type. Some
+			// errors require special handling.
+			var (
+				busyError      *agentcomm.ZoneInventoryBusyError
+				notInitedError *agentcomm.ZoneInventoryNotInitedError
+			)
+			switch {
+			case errors.As(err, &busyError):
+				// Unable to fetch from the inventory because the inventory on
+				// the agent is busy running some long lasting operation.
+				state.SetStatus(dbmodel.ZoneInventoryStatusBusy, err)
+			case errors.As(err, &notInitedError):
+				// Unable to fetch from the inventory because the inventory has
+				// not been initialized yet.
+				state.SetStatus(dbmodel.ZoneInventoryStatusUninitialized, err)
+			default:
+				// Some other error.
+				state.SetStatus(dbmodel.ZoneInventoryStatusErred, err)
+			}
+			break
+		}
+		if isFirst {
+			// Delete the local zones.
+			isFirst = false
+			err = dbmodel.DeleteLocalZones(manager.db, app.Daemons[0].ID)
+			if err != nil {
+				state.SetStatus(dbmodel.ZoneInventoryStatusErred, err)
+				break
+			}
+		}
+		// Successfully received the zone from the agent. Let's queue
+		// it in the database for insertion.
+		dbZone := dbmodel.Zone{
+			Name: zone.Name(),
+			LocalZones: []*dbmodel.LocalZone{
+				{
+					DaemonID: app.Daemons[0].ID,
+					View:     zone.ViewName,
+					Class:    zone.Class,
+					Serial:   zone.Serial,
+					Type:     zone.Type,
+					LoadedAt: zone.Loaded,
+				},
+			},
+		}
+		// The zone also carries the total number of zones in the inventory.
+		state.SetTotalZones(zone.TotalZoneCount)
+		if view != zone.ViewName {
+			// Flush the batch to complete the view insertion. Note that
+			// this is ok even when the view is empty (first zone). In
+			// this case the FlushAndAdd will skip the flush.
+			err = batch.FlushAndAdd(&dbZone)
+			view = zone.ViewName
+		} else {
+			err = batch.Add(&dbZone)
+		}
+		if err != nil {
+			state.SetStatus(dbmodel.ZoneInventoryStatusErred, err)
+			break
+		}
+	}
+	if state.Error == nil {
+		// If we successfully added zones to the database so far. There is
+		// one more batch to add with a lower number of zones than the
+		// specified batchSize.
+		if err := batch.Flush(); err != nil {
+			state.SetStatus(dbmodel.ZoneInventoryStatusErred, err)
+		}
+	}
+	// Add the zone inventory state into the database for this DNS server.
+	if err := dbmodel.AddZoneInventoryState(manager.db, dbmodel.NewZoneInventoryState(app.Daemons[0].ID, state)); err != nil {
+		// This is an exceptional situation and normally shouldn't happen.
+		// Let's communicate this issue to the caller and log it. The
+		// zone inventory state won't be available for this server.
+		state.SetStatus(dbmodel.ZoneInventoryStatusErred, err)
+		log.WithFields(log.Fields{
+			"app": app.Name,
+		}).WithError(err).Error("Failed to save the zone inventory status in the database")
+	}
+	// Store the inventory state in the common map, so it can be returned
+	// to a caller.
+	storeResult(mutex, results, app.Daemons[0].ID, state)
+	manager.fetchingState.increaseCompletedAppsCount()
+}
+
 // Checks if the DNS Manager is currently fetching the zones.
 func (manager *managerImpl) GetFetchZonesProgress() (bool, int, int) {
 	return manager.fetchingState.getFetchZonesProgress()
+}
+
+// Requests RRs for a zone from the agent's zone inventory and returns them
+// over the response channel.
+func (manager *managerImpl) runRRsRequest(request *rrsRequest) {
+	defer func() {
+		close(request.respChan)
+		manager.rrsReqsState.mutex.Lock()
+		defer manager.rrsReqsState.mutex.Unlock()
+		delete(manager.rrsReqsState.requests, request.key)
+	}()
+	for rr, err := range manager.agents.ReceiveZoneRRs(context.Background(), request.app, request.zoneName, request.viewName) {
+		if err != nil {
+			request.respChan <- &rrResponse{nil, err}
+			return
+		}
+		request.respChan <- &rrResponse{rr, nil}
+	}
+}
+
+// Requests RRs for a zone from the agent's zone inventory and returns them
+// over the response channel. The specified key should uniquely identify a
+// zone, view and daemon for which the RRs are requested. If there is an
+// ongoing request for the same key, the function returns an error.
+func (manager *managerImpl) requestZoneRRs(key uint64, app *dbmodel.App, zoneName string, viewName string) (chan *rrResponse, error) {
+	// Try to mark the request as ongoing. If the request is already present
+	// under the same key, return an error.
+	manager.rrsReqsState.mutex.Lock()
+	if _, ok := manager.rrsReqsState.requests[key]; ok {
+		manager.rrsReqsState.mutex.Unlock()
+		return nil, NewManagerRRsAlreadyRequestedError(viewName, zoneName)
+	}
+	manager.rrsReqsState.requests[key] = true
+	manager.rrsReqsState.mutex.Unlock()
+
+	// Create a new request and send it to the channel.
+	request := newRRsRequest(key, app, zoneName, viewName)
+	manager.rrsReqsState.requestChan <- request
+	// Return the response channel, so the caller can receive the RRs.
+	return request.respChan, nil
+}
+
+// Starts a pool of workers that fetch RRs for the requested zones from the
+// agents' zone inventories.
+func (manager *managerImpl) startRRsRequestWorkers(ctx context.Context) {
+	pool := storkutil.NewPausablePool(runtime.GOMAXPROCS(0) * 2)
+	manager.rrsReqsState.pool = pool
+	go func(ctx context.Context) {
+		defer func() {
+			// When the worker pool is stopped, we need to close the request channel.
+			close(manager.rrsReqsState.requestChan)
+		}()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case request, ok := <-manager.rrsReqsState.requestChan:
+				if !ok {
+					return
+				}
+				err := pool.Submit(func() {
+					manager.runRRsRequest(request)
+				})
+				if err != nil {
+					log.WithError(err).Error("Failed to submit RRs request to the worker pool")
+					request.respChan <- &rrResponse{nil, err}
+				}
+			}
+		}
+	}(ctx)
+}
+
+// Stops the worker pool for fetching RRs.
+func (manager *managerImpl) stopRRsRequestWorkers() {
+	manager.rrsReqsState.pool.Stop()
+	manager.rrsReqsState.cancel()
+}
+
+// Shuts down the DNS manager by stopping background tasks.
+func (manager *managerImpl) Shutdown() {
+	log.Info("Shutting down DNS Manager")
+	manager.stopRRsRequestWorkers()
+}
+
+// Returns zone contents (RRs) for a specified view, zone and daemon.
+func (manager *managerImpl) GetZoneRRs(zoneID int64, daemonID int64, viewName string) iter.Seq2[[]dns.RR, error] {
+	return func(yield func([]dns.RR, error) bool) {
+		// We need an app associated with the daemon.
+		daemon, err := dbmodel.GetDaemonByID(manager.db, daemonID)
+		if err != nil {
+			// This is unexpected and we can't proceed because we
+			// don't have the app instance.
+			_ = yield(nil, err)
+			return
+		}
+		if daemon == nil {
+			// This is also unexpected.
+			_ = yield(nil, errors.Errorf("daemon with the ID of %d not found", daemonID))
+			return
+		}
+		app := daemon.App
+
+		// We need a zone name, so let's get it from the database.
+		zone, err := dbmodel.GetZoneByID(manager.db, zoneID)
+		if err != nil {
+			// Again, it should be rare, unless someone used a link to a non-existing
+			// zone or tempered with the ID in the URL.
+			_ = yield(nil, err)
+			return
+		}
+		if zone == nil {
+			// This is also unexpected.
+			_ = yield(nil, errors.Errorf("zone with the ID of %d not found", zoneID))
+			return
+		}
+		// To avoid sending multiple requests for the same zone, we should check
+		// if any requests are already in progress. The FNV key is unique for the
+		// daemon, zone and view.
+		h := fnv.New64a()
+		h.Write([]byte(fmt.Sprintf("%d:%d:%s", daemonID, zoneID, viewName)))
+		key := h.Sum64()
+		ch, err := manager.requestZoneRRs(key, app, zone.Name, viewName)
+		if err != nil {
+			// The zone inventory is most likely busy.
+			_ = yield(nil, err)
+			return
+		}
+		// Collect the RRs and return them to the caller.
+		for r := range ch {
+			if r.err != nil {
+				_ = yield(nil, r.err)
+				return
+			}
+			if !yield(r.rrs, nil) {
+				return
+			}
+		}
+	}
 }
 
 // Convenience function storing a value in a map with mutex protection.

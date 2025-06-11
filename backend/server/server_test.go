@@ -31,7 +31,7 @@ func checkOutput(output string, exp []string, reason string) bool {
 func getExpectedSwitches() []string {
 	return []string{
 		"-v", "-m", "--metrics", "--version", "-d", "--db-name", "-u", "--db-user", "--db-host",
-		"-p", "--db-port", "--db-trace-queries", "--rest-cleanup-timeout", "--rest-graceful-timeout",
+		"-p", "--db-port", "--db-trace-queries", "--rest-cleanup-timeout",
 		"--rest-max-header-size", "--rest-host", "--rest-port", "--rest-listen-limit",
 		"--rest-keep-alive", "--rest-read-timeout", "--rest-write-timeout", "--rest-tls-certificate",
 		"--rest-tls-key", "--rest-tls-ca", "--rest-static-files-dir", "--initial-puller-interval",
@@ -115,7 +115,6 @@ func TestNewStorkServer(t *testing.T) {
 		"--db-sslrootcert", "sslrootcert",
 		"--db-trace-queries", "all",
 		"--rest-cleanup-timeout", "12s",
-		"--rest-graceful-timeout", "34m",
 		"--rest-max-header-size", "56",
 		"--rest-host", "resthost",
 		"--rest-port", "1234",
@@ -149,7 +148,6 @@ func TestNewStorkServer(t *testing.T) {
 	require.EqualValues(t, "sslrootcert", ss.DBSettings.SSLRootCert)
 	require.EqualValues(t, "all", ss.DBSettings.TraceSQL)
 	require.EqualValues(t, 12*time.Second, ss.RestAPISettings.CleanupTimeout)
-	require.EqualValues(t, 34*time.Minute, ss.RestAPISettings.GracefulTimeout)
 	require.EqualValues(t, 56, ss.RestAPISettings.MaxHeaderSize)
 	require.EqualValues(t, "resthost", ss.RestAPISettings.Host)
 	require.EqualValues(t, 1234, ss.RestAPISettings.Port)

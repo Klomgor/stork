@@ -1,0 +1,31 @@
+<div
+    class="utilization"
+    [ngClass]="{ 'utilization--double': isDouble }"
+    pTooltip="{{ tooltip }}"
+    tooltipStyleClass="text-sm max-w-40rem"
+    [escape]="false"
+>
+    <!-- Bar label -->
+    <div class="utilization__label">
+        <!-- Content provided by the caller component. -->
+        <ng-content></ng-content>
+    </div>
+    <div class="utilization__bars">
+        <!-- Primary utilization bar -->
+        <div class="utilization__bar-wrapper">
+            <span class="utilization__kind">{{ kindPrimary }}</span>
+            <div
+                class="utilization__bar {{ getUtilizationBarModificatorClass(utilizationPrimary) }}"
+                [ngStyle]="utilizationStylePrimary"
+            ></div>
+        </div>
+        <!-- Secondary utilization bar -->
+        <div class="utilization__bar-wrapper utilization__bar-wrapper--secondary" *ngIf="isDouble">
+            <span class="utilization__kind">{{ kindSecondary }}</span>
+            <div
+                class="utilization__bar {{ getUtilizationBarModificatorClass(utilizationSecondary) }}"
+                [ngStyle]="utilizationStyleSecondary"
+            ></div>
+        </div>
+    </div>
+</div>

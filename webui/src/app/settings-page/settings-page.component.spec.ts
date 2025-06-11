@@ -13,20 +13,22 @@ import { BreadcrumbsComponent } from '../breadcrumbs/breadcrumbs.component'
 import { BreadcrumbModule } from 'primeng/breadcrumb'
 import { HelpTipComponent } from '../help-tip/help-tip.component'
 import { OverlayPanelModule } from 'primeng/overlaypanel'
-import { ActivatedRoute } from '@angular/router'
-import { RouterTestingModule } from '@angular/router/testing'
+import { ActivatedRoute, provideRouter, RouterModule } from '@angular/router'
 import { DividerModule } from 'primeng/divider'
 import { of, throwError } from 'rxjs'
 import { ProgressSpinnerModule } from 'primeng/progressspinner'
 import { CheckboxModule } from 'primeng/checkbox'
 import { InputNumberModule } from 'primeng/inputnumber'
 import { provideHttpClient, withInterceptorsFromDi } from '@angular/common/http'
+import { ManagedAccessDirective } from '../managed-access.directive'
+import { AuthService } from '../auth.service'
 
 describe('SettingsPageComponent', () => {
     let component: SettingsPageComponent
     let fixture: ComponentFixture<SettingsPageComponent>
     let settingsApi: SettingsService
     let messageService: MessageService
+    let authService: AuthService
 
     beforeEach(waitForAsync(() => {
         TestBed.configureTestingModule({
@@ -43,8 +45,9 @@ describe('SettingsPageComponent', () => {
                 NoopAnimationsModule,
                 OverlayPanelModule,
                 ProgressSpinnerModule,
-                RouterTestingModule,
+                RouterModule,
                 InputNumberModule,
+                ManagedAccessDirective,
             ],
             providers: [
                 SettingsService,
@@ -55,6 +58,7 @@ describe('SettingsPageComponent', () => {
                 },
                 provideHttpClient(withInterceptorsFromDi()),
                 provideHttpClientTesting(),
+                provideRouter([]),
             ],
         }).compileComponents()
     }))
@@ -64,6 +68,8 @@ describe('SettingsPageComponent', () => {
         component = fixture.componentInstance
         settingsApi = fixture.debugElement.injector.get(SettingsService)
         messageService = fixture.debugElement.injector.get(MessageService)
+        authService = fixture.debugElement.injector.get(AuthService)
+        spyOn(authService, 'superAdmin').and.returnValue(true)
         fixture.detectChanges()
     })
 

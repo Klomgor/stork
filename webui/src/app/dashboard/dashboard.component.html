@@ -3,7 +3,7 @@
         <div *ngIf="noApps" class="max-w-50rem">
             <p-panel>
                 <p-header>
-                    <span class="p-panel-title">Welcome to Stork!</span>
+                    <span class="p-panel-title text-3xl">Welcome to Stork!</span>
                 </p-header>
 
                 <p class="pb-3">Stork is a monitoring solution for <em>ISC Kea DHCP</em> and <em>ISC BIND 9</em>.</p>
@@ -31,32 +31,46 @@
         </div>
 
         <div *ngIf="appsStats.keaAppsTotal > 0">
-            <p-panel>
-                <p-header>
-                    <div class="flex justify-content-between">
-                        <span class="p-panel-title">DHCP Dashboard</span>
+            <p-panel
+                [toggleable]="true"
+                [collapsed]="isDHCPDashboardHidden()"
+                iconPos="start"
+                (onAfterToggle)="storeDHCPDashboardHidden($event.collapsed)"
+            >
+                <ng-template pTemplate="headericons" let-collapsed>
+                    <i
+                        [class]="{
+                            pi: true,
+                            'pi-chevron-down': !collapsed,
+                            'pi-chevron-right': collapsed,
+                            primary: collapsed,
+                        }"
+                    ></i>
+                </ng-template>
+                <ng-template pTemplate="header">
+                    <div class="flex align-items-center">
+                        <span class="p-panel-title mr-4 flex-order-0 text-3xl">DHCP Dashboard</span>
                         <p-button
                             id="refresh-dhcp-button"
                             icon="pi pi-refresh"
                             (click)="refreshDhcpOverview()"
                         ></p-button>
                     </div>
-                </p-header>
-
+                </ng-template>
                 <h1 class="section-heading">DHCPv4</h1>
                 <div class="grid dashboard-dhcp" id="dashboard-dhcp4">
                     <div class="col-12 lg:col-4 dashboard-dhcp__subnets dashboard-section">
                         <h2 class="section-heading dashboard-section__header">
-                            Subnets: {{ overview.subnets4.total ? overview.subnets4.total : '0' }}
+                            Subnets: {{ overview.subnets4?.total ?? 0 }}
                             <app-help-tip subject="subnets listed" id="subnets4-help-button">
                                 <p>
                                     This list shows the five DHCPv4 subnets with the highest utilization. The total
-                                    number of subnets is {{ overview.subnets4.total ? overview.subnets4.total : '0' }}.
+                                    number of subnets is {{ overview.subnets4?.total ?? 0 }}.
                                 </p>
                             </app-help-tip>
                         </h2>
                         <table class="dashboard-section__data">
-                            <tr *ngFor="let sn of overview.subnets4.items" class="utilization-row">
+                            <tr *ngFor="let sn of overview.subnets4?.items ?? []" class="utilization-row">
                                 <td class="utilization-row__id">
                                     {{ sn.localSubnets?.[0]?.id | surround: '[' : ']' }}
                                 </td>
@@ -64,7 +78,7 @@
                                     <app-subnet-bar [subnet]="sn"></app-subnet-bar>
                                 </td>
                                 <td class="utilization-row__value">
-                                    {{ sn.addrUtilization ? sn.addrUtilization : '0' }}% used
+                                    {{ sn.addrUtilization ?? 0 | number: '1.0-1' }}% used
                                     <i
                                         *ngIf="sn.addrUtilization > 80 && sn.addrUtilization <= 90"
                                         class="pi pi-exclamation-triangle text-2xl text-orange-400 vertical-align-middle"
@@ -103,17 +117,17 @@
                     </div>
                     <div class="col-12 lg:col-4 dashboard-dhcp__shared-networks dashboard-section">
                         <h2 class="section-heading dashboard-section__header">
-                            Shared Networks: {{ overview.sharedNetworks4.total ? overview.sharedNetworks4.total : '0' }}
+                            Shared Networks: {{ overview.sharedNetworks4?.total ?? 0 }}
                             <app-help-tip subject="networks listed" id="networks4-help-button">
                                 <p>
                                     This list shows the five shared networks with the highest utilization. The total
                                     number of networks is
-                                    {{ overview.sharedNetworks4.total ? overview.sharedNetworks4.total : '0' }}.
+                                    {{ overview.sharedNetworks4?.total ?? 0 }}.
                                 </p>
                             </app-help-tip>
                         </h2>
                         <table class="dashboard-section__data">
-                            <tr *ngFor="let net of overview.sharedNetworks4.items" class="utilization-row">
+                            <tr *ngFor="let net of overview.sharedNetworks4?.items ?? []" class="utilization-row">
                                 <td class="utilization-row__name">
                                     <app-entity-link
                                         [showEntityName]="false"
@@ -123,7 +137,7 @@
                                 </td>
                                 <td class="utilization-row__count">{{ net.subnets.length }} subnets</td>
                                 <td class="utilization-row__value">
-                                    {{ net.addrUtilization ? net.addrUtilization : '0' }}% used
+                                    {{ net.addrUtilization ?? 0 | number: '1.0-1' }}% used
                                 </td>
                             </tr>
 
@@ -142,13 +156,13 @@
                             <tr class="statistics-row">
                                 <td class="statistics-row__label">Addresses</td>
                                 <td class="statistics-row__value">
-                                    {{ overview.dhcp4Stats.assignedAddresses ?? 0 | humanCount }}
+                                    {{ overview.dhcp4Stats?.assignedAddresses ?? 0 | humanCount }}
                                     /
-                                    {{ overview.dhcp4Stats.totalAddresses ?? 0 | humanCount }}
+                                    {{ overview.dhcp4Stats?.totalAddresses ?? 0 | humanCount }}
                                     ({{
                                         getPercent(
-                                            overview.dhcp4Stats.assignedAddresses,
-                                            overview.dhcp4Stats.totalAddresses
+                                            overview.dhcp4Stats?.assignedAddresses,
+                                            overview.dhcp4Stats?.totalAddresses
                                         )
                                     }}% used)
                                 </td>
@@ -156,7 +170,7 @@
                             <tr class="statistics-row">
                                 <td class="statistics-row__label">Declined</td>
                                 <td class="statistics-row__value">
-                                    {{ overview.dhcp4Stats.declinedAddresses ?? 0 | humanCount }}
+                                    {{ overview.dhcp4Stats?.declinedAddresses ?? 0 | humanCount }}
                                 </td>
                             </tr>
                             <!-- TODO <tr> -->
@@ -171,16 +185,16 @@
                 <div class="grid dashboard-dhcp" id="dashboard-dhcp6">
                     <div class="col-12 lg:col-4 dashboard-dhcp__subnets dashboard-section">
                         <h2 class="section-heading dashboard-section__header">
-                            Subnets: {{ overview.subnets6.total ? overview.subnets6.total : '0' }}
+                            Subnets: {{ overview.subnets6?.total ?? 0 }}
                             <app-help-tip subject="subnets listed" id="subnets6-help-button">
                                 <p>
                                     This list shows the five DHCPv6 subnets with the highest utilization. The total
-                                    number of subnets is {{ overview.subnets6.total ? overview.subnets6.total : '0' }}.
+                                    number of subnets is {{ overview.subnets6?.total ?? 0 }}.
                                 </p>
                             </app-help-tip>
                         </h2>
                         <table class="dashboard-section__data">
-                            <tr *ngFor="let sn of overview.subnets6.items" class="utilization-row">
+                            <tr *ngFor="let sn of overview.subnets6?.items ?? []" class="utilization-row">
                                 <td class="utilization-row__id">
                                     {{ sn.localSubnets?.[0]?.id | surround: '[' : ']' }}
                                 </td>
@@ -188,7 +202,7 @@
                                     <app-subnet-bar [subnet]="sn"></app-subnet-bar>
                                 </td>
                                 <td class="utilization-row__value">
-                                    {{ sn.addrUtilization ? sn.addrUtilization : '0' }}% used
+                                    {{ sn.addrUtilization ?? 0 | number: '1.0-1' }}% used
                                     <i
                                         *ngIf="sn.addrUtilization > 80 && sn.addrUtilization <= 90"
                                         class="pi pi-exclamation-triangle text-2xl text-orange-400 vertical-align-middle"
@@ -227,17 +241,17 @@
                     </div>
                     <div class="col-12 lg:col-4 dashboard-dhcp__shared-networks dashboard-section">
                         <h2 class="section-heading dashboard-section__header">
-                            Shared Networks: {{ overview.sharedNetworks6.total ? overview.sharedNetworks6.total : '0' }}
+                            Shared Networks: {{ overview.sharedNetworks6?.total ?? 0 }}
                             <app-help-tip subject="networks listed" id="networks6-help-button">
                                 <p>
                                     This list shows the five shared networks with the highest utilization. The total
                                     number of networks is
-                                    {{ overview.sharedNetworks6.total ? overview.sharedNetworks6.total : '0' }}.
+                                    {{ overview.sharedNetworks6?.total ?? 0 }}.
                                 </p>
                             </app-help-tip>
                         </h2>
                         <table class="dashboard-section__data">
-                            <tr *ngFor="let net of overview.sharedNetworks6.items" class="utilization-row">
+                            <tr *ngFor="let net of overview.sharedNetworks6?.items ?? []" class="utilization-row">
                                 <td class="utilization-row__name">
                                     <app-entity-link
                                         [showEntityName]="false"
@@ -247,7 +261,7 @@
                                 </td>
                                 <td class="utilization-row__count">{{ net.subnets.length }} subnets</td>
                                 <td class="utilization-row__value">
-                                    {{ net.addrUtilization ? net.addrUtilization : '0' }}% used
+                                    {{ net.addrUtilization ?? 0 | number: '1.0-1' }}% used
                                 </td>
                             </tr>
 
@@ -266,27 +280,27 @@
                             <tr class="statistics-row">
                                 <td class="statistics-row__label">Addresses</td>
                                 <td class="statistics-row__value">
-                                    {{ overview.dhcp6Stats.assignedNAs ?? 0 | humanCount }}
+                                    {{ overview.dhcp6Stats?.assignedNAs ?? 0 | humanCount }}
                                     /
-                                    {{ overview.dhcp6Stats.totalNAs ?? 0 | humanCount }}
-                                    ({{ getPercent(overview.dhcp6Stats.assignedNAs, overview.dhcp6Stats.totalNAs) }}%
+                                    {{ overview.dhcp6Stats?.totalNAs ?? 0 | humanCount }}
+                                    ({{ getPercent(overview.dhcp6Stats?.assignedNAs, overview.dhcp6Stats?.totalNAs) }}%
                                     used)
                                 </td>
                             </tr>
                             <tr class="statistics-row">
                                 <td class="statistics-row__label">Prefixes</td>
                                 <td class="statistics-row__value">
-                                    {{ overview.dhcp6Stats.assignedPDs ?? 0 | humanCount }}
+                                    {{ overview.dhcp6Stats?.assignedPDs ?? 0 | humanCount }}
                                     /
-                                    {{ overview.dhcp6Stats.totalPDs ?? 0 | humanCount }}
-                                    ({{ getPercent(overview.dhcp6Stats.assignedPDs, overview.dhcp6Stats.totalPDs) }}%
+                                    {{ overview.dhcp6Stats?.totalPDs ?? 0 | humanCount }}
+                                    ({{ getPercent(overview.dhcp6Stats?.assignedPDs, overview.dhcp6Stats?.totalPDs) }}%
                                     used)
                                 </td>
                             </tr>
                             <tr class="statistics-row">
                                 <td class="statistics-row__label">Declined</td>
                                 <td class="statistics-row__value">
-                                    {{ overview.dhcp6Stats.declinedNAs ?? 0 | humanCount }}
+                                    {{ overview.dhcp6Stats?.declinedNAs ?? 0 | humanCount }}
                                 </td>
                             </tr>
                             <!-- TODO <tr> -->
@@ -299,11 +313,7 @@
 
                 <h1 class="section-heading">Service Status</h1>
 
-                <p-table
-                    [value]="overview.dhcpDaemons"
-                    styleClass="p-datatable-sm p-datatable-striped max-w-100vw"
-                    tableStyleClass="services-status"
-                >
+                <p-table [value]="overview.dhcpDaemons" styleClass="p-datatable-sm p-datatable-striped max-w-100vw">
                     <ng-template pTemplate="header">
                         <tr>
                             <th>Host</th>
@@ -335,7 +345,7 @@
                             <td>
                                 <i
                                     pTooltip="{{ daemonStatusIconTooltip(d) }}"
-                                    class="pi {{ daemonStatusIconName(d) }} text-2xl"
+                                    class="{{ daemonStatusIconName(d) }} text-2xl"
                                     [ngStyle]="{
                                         color: daemonStatusIconColor(d),
                                     }"
@@ -370,30 +380,134 @@
                 </p-table>
             </p-panel>
         </div>
-        <!-- TODO: for now do not show empty DNS dashboard. Maybe a panel with links to BIND 9 machines to have anything?
-<div class="col-6" *ngIf="appsStats.bind9AppsTotal > 0">
-    <p-panel header="DNS">
-        TODO
-    </p-panel>
-</div>
--->
+
+        <div *ngIf="appsStats.bind9AppsTotal > 0">
+            <p-panel
+                [toggleable]="true"
+                [collapsed]="isDNSDashboardHidden()"
+                iconPos="start"
+                (onAfterToggle)="storeDNSDashboardHidden($event.collapsed)"
+            >
+                <ng-template pTemplate="headericons" let-collapsed>
+                    <i [class]="{ pi: true, 'pi-chevron-down': !collapsed, 'pi-chevron-right': collapsed }"></i>
+                </ng-template>
+                <ng-template pTemplate="header">
+                    <div class="flex align-items-center">
+                        <span class="p-panel-title mr-4 flex-order-0 text-3xl">DNS Dashboard</span>
+                        <p-button
+                            id="refresh-dns-button"
+                            icon="pi pi-refresh"
+                            (click)="refreshDnsOverview(dnsServiceStatusTable.createLazyLoadMetadata())"
+                        ></p-button>
+                    </div>
+                </ng-template>
+                <h1 class="section-heading">Service Status</h1>
+                <p-table
+                    #dnsServiceStatusTable
+                    [value]="dnsApps"
+                    styleClass="p-datatable-sm p-datatable-striped max-w-100vw"
+                    [lazy]="true"
+                    (onLazyLoad)="refreshDnsOverview($event)"
+                    [totalRecords]="dnsAppsTotalCount"
+                    [loading]="dnsServiceStatusLoading"
+                    [paginator]="true"
+                    [rows]="5"
+                    [rowsPerPageOptions]="[5, 10, 20]"
+                    [alwaysShowPaginator]="false"
+                >
+                    <ng-template pTemplate="header">
+                        <tr>
+                            <th>Host</th>
+                            <th>App Version</th>
+                            <th>App Name</th>
+                            <th>Daemon</th>
+                            <th>Status</th>
+                            <th>Zone Fetch Status</th>
+                            <th
+                                pTooltip="Zone config is a zone specification in the BIND9 view.
+                            If the zone appears in several views, this count is increased
+                            for each occurrence of that zone.
+                            "
+                                class="cursor-pointer"
+                            >
+                                Zone Configs Count
+                            </th>
+                            <th>Uptime</th>
+                        </tr>
+                    </ng-template>
+                    <ng-template pTemplate="body" let-a>
+                        <tr>
+                            <td>
+                                <a *ngIf="a.machine?.id" routerLink="/machines/{{ a.machine.id }}">{{
+                                    a.machine?.hostname ?? 'unknown'
+                                }}</a>
+                            </td>
+                            <td>
+                                <a *ngIf="a.id" routerLink="/apps/bind9/{{ a.id }}"
+                                    ><app-version-status
+                                        [app]="a.type"
+                                        [version]="a.version"
+                                        [showAppName]="true"
+                                    ></app-version-status
+                                ></a>
+                            </td>
+                            <td>
+                                <a *ngIf="a.id" routerLink="/apps/bind9/{{ a.id }}">{{ a.name ?? 'unknown' }}</a>
+                            </td>
+                            <td>{{ a.details?.daemon?.name ?? 'unknown' }}</td>
+                            <td>
+                                <i
+                                    *ngIf="a.details?.daemon"
+                                    pTooltip="{{ daemonStatusIconTooltip(a.details.daemon) }}"
+                                    class="{{ daemonStatusIconName(a.details.daemon) }} text-2xl"
+                                    [ngStyle]="{
+                                        color: daemonStatusIconColor(a.details.daemon),
+                                    }"
+                                ></i>
+                            </td>
+                            <td>
+                                <a *ngIf="a.id" routerLink="/dns/zones" [queryParams]="{ appId: a.id }">
+                                    {{ !zoneInventoryStateMap.get(a.id) ? 'n/a' : '' }}
+                                    <p-tag
+                                        *ngIf="zoneInventoryStateMap.get(a.id)"
+                                        value="{{
+                                            zoneInventoryStateMap.get(a.id).status === 'erred'
+                                                ? 'Error'
+                                                : (zoneInventoryStateMap.get(a.id).status | titlecase)
+                                        }} "
+                                        [severity]="getSeverity(zoneInventoryStateMap.get(a.id).status)"
+                                        [pTooltip]="getTooltip(zoneInventoryStateMap.get(a.id).status)"
+                                    />
+                                </a>
+                            </td>
+                            <td>
+                                <ng-container *ngIf="zoneInventoryStateMap.get(a.id)">
+                                    <a routerLink="/dns/zones" [queryParams]="{ appId: a.id }">{{
+                                        zoneInventoryStateMap.get(a.id).zoneConfigsCount ?? 0
+                                    }}</a>
+                                </ng-container>
+                                <ng-container *ngIf="!zoneInventoryStateMap.get(a.id)"> n/a </ng-container>
+                            </td>
+                            <td>{{ showDuration(a.details?.daemon?.uptime ?? 0) }}</td>
+                        </tr>
+                    </ng-template>
+                </p-table>
+            </p-panel>
+        </div>
     </article>
 
     <aside>
-        <p-panel class="dashboard-events-panel">
-            <p-header>
-                <div class="flex justify-content-between">
-                    <span class="p-panel-title">Events</span>
-                    <div>
-                        <p-button
-                            icon="pi pi-refresh"
-                            id="refresh-events-button"
-                            (click)="eventsTable.refreshEvents(null)"
-                            styleClass="ml-2"
-                        ></p-button>
-                    </div>
+        <p-panel class="dashboard-events-panel" iconPos="start">
+            <ng-template pTemplate="header">
+                <div class="flex align-items-center">
+                    <span class="p-panel-title mr-4 flex-order-0 text-3xl">Events</span>
+                    <p-button
+                        icon="pi pi-refresh"
+                        id="refresh-events-button"
+                        (click)="eventsTable.refreshEvents(null)"
+                    ></p-button>
                 </div>
-            </p-header>
+            </ng-template>
 
             <div>
                 <app-events-panel [showRowsPerPage]="false" #eventsTable></app-events-panel>
